@@ -158,23 +158,205 @@ const ChatPanel = () => {
         scrollToBottom();
     }, [messages]);
 
-    const handleSend = () => {
+    const handleSend = async () => {
         if (!input.trim() || isLoading) return;
 
         const userMessage = { role: 'user', content: input };
         setMessages(prev => [...prev, userMessage]);
+        const userInput = input;
         setInput('');
         setIsLoading(true);
 
-        // Simulate AI response (placeholder for future OpenAI integration)
-        setTimeout(() => {
-            const assistantMessage = {
+        try {
+            // Get LLM configuration
+            const config = JSON.parse(localStorage.getItem('llm_config') || '{}');
+            
+            if (!config.apiKey) {
+                throw new Error('Please configure your API key in the Configuration tab');
+            }
+
+            // Prepare messages for API
+            const apiMessages = messages.concat([userMessage]).map(msg => ({
+                role: msg.role,
+                content: msg.content
+            }));
+
+            // Define tools for Excalidraw
+            const tools = [
+                {
+                    type: 'function',
+                    function: {
+                        name: 'add_rectangle',
+                        description: 'Add a rectangle to the Excalidraw canvas',
+                        parameters: {
+                            type: 'object',
+                            properties: {
+                                x: { type: 'number', description: 'X coordinate' },
+                                y: { type: 'number', description: 'Y coordinate' },
+                                width: { type: 'number', description: 'Width of rectangle' },
+                                height: { type: 'number', description: 'Height of rectangle' },
+                                strokeColor: { type: 'string', description: 'Stroke color (hex)' },
+                                backgroundColor: { type: 'string', description: 'Background color (hex)' }
+                            },
+                            required: ['x', 'y', 'width', 'height']
+                        }
+                    }
+                },
+                {
+                    type: 'function',
+                    function: {
+                        name: 'add_text',
+                        description: 'Add text to the Excalidraw canvas',
+                        parameters: {
+                            type: 'object',
+                            properties: {
+                                x: { type: 'number', description: 'X coordinate' },
+                                y: { type: 'number', description: 'Y coordinate' },
+                                text: { type: 'string', description: 'Text content' },
+                                fontSize: { type: 'number', description: 'Font size' },
+                                strokeColor: { type: 'string', description: 'Text color (hex)' }
+                            },
+                            required: ['x', 'y', 'text']
+                        }
+                    }
+                },
+                {
+                    type: 'function',
+                    function: {
+                        name: 'add_arrow',
+                        description: 'Add an arrow to the Excalidraw canvas',
+                        parameters: {
+                            type: 'object',
+                            properties: {
+                                startX: { type: 'number', description: 'Start X coordinate' },
+                                startY: { type: 'number', description: 'Start Y coordinate' },
+                                endX: { type: 'number', description: 'End X coordinate' },
+                                endY: { type: 'number', description: 'End Y coordinate' },
+                                strokeColor: { type: 'string', description: 'Arrow color (hex)' }
+                            },
+                            required: ['startX', 'startY', 'endX', 'endY']
+                        }
+                    }
+                },
+                {
+                    type: 'function',
+                    function: {
+                        name: 'add_ellipse',
+                        description: 'Add an ellipse/circle to the Excalidraw canvas',
+                        parameters: {
+                            type: 'object',
+                            properties: {
+                                x: { type: 'number', description: 'X coordinate' },
+                                y: { type: 'number', description: 'Y coordinate' },
+                                width: { type: 'number', description: 'Width of ellipse' },
+                                height: { type: 'number', description: 'Height of ellipse' },
+                                strokeColor: { type: 'string', description: 'Stroke color (hex)' },
+                                backgroundColor: { type: 'string', description: 'Background color (hex)' }
+                            },
+                            required: ['x', 'y', 'width', 'height']
+                        }
+                    }
+                }
+            ];
+
+            // Call OpenAI API
+            const response = await fetch(`${config.apiEndpoint}/chat/completions`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${config.apiKey}`
+                },
+                body: JSON.stringify({
+                    model: config.model || 'gpt-4',
+                    messages: apiMessages,
+                    tools: tools,
+                    temperature: config.temperature || 0.7,
+                    max_tokens: config.maxTokens || 2000
+                })
+            });
+
+            if (!response.ok) {
+                const error = await response.json();
+                throw new Error(error.error?.message || 'API request failed');
+            }
+
+            const data = await response.json();
+            const assistantMessage = data.choices[0].message;
+
+            // Handle tool calls
+            if (assistantMessage.tool_calls) {
+                const toolResults = [];
+                const toolCallsData = [];
+                
+                for (const toolCall of assistantMessage.tool_calls) {
+                    const functionName = toolCall.function.name;
+                    const args = JSON.parse(toolCall.function.arguments);
+                    
+                    toolCallsData.push({
+                        function: functionName,
+                        arguments: args
+                    });
+                    
+                    let result;
+                    try {
+                        switch (functionName) {
+                            case 'add_rectangle':
+                                result = window.ExcalidrawAPI.addRectangle(
+                                    args.x, args.y, args.width, args.height,
+                                    { strokeColor: args.strokeColor, backgroundColor: args.backgroundColor }
+                                );
+                                toolResults.push(`Created rectangle at (${args.x}, ${args.y})`);
+                                break;
+                            case 'add_text':
+                                result = window.ExcalidrawAPI.addText(
+                                    args.x, args.y, args.text,
+                                    { fontSize: args.fontSize, strokeColor: args.strokeColor }
+                                );
+                                toolResults.push(`Added text "${args.text}" at (${args.x}, ${args.y})`);
+                                break;
+                            case 'add_arrow':
+                                result = window.ExcalidrawAPI.addArrow(
+                                    args.startX, args.startY, args.endX, args.endY,
+                                    { strokeColor: args.strokeColor }
+                                );
+                                toolResults.push(`Created arrow from (${args.startX}, ${args.startY}) to (${args.endX}, ${args.endY})`);
+                                break;
+                            case 'add_ellipse':
+                                result = window.ExcalidrawAPI.addEllipse(
+                                    args.x, args.y, args.width, args.height,
+                                    { strokeColor: args.strokeColor, backgroundColor: args.backgroundColor }
+                                );
+                                toolResults.push(`Created ellipse at (${args.x}, ${args.y})`);
+                                break;
+                        }
+                    } catch (error) {
+                        toolResults.push(`Error executing ${functionName}: ${error.message}`);
+                    }
+                }
+
+                // Add response with tool results
+                const responseMessage = {
+                    role: 'assistant',
+                    content: assistantMessage.content || toolResults.join('\n'),
+                    toolCalls: toolCallsData
+                };
+                setMessages(prev => [...prev, responseMessage]);
+            } else {
+                // Regular text response
+                setMessages(prev => [...prev, {
+                    role: 'assistant',
+                    content: assistantMessage.content
+                }]);
+            }
+        } catch (error) {
+            console.error('Error calling LLM:', error);
+            setMessages(prev => [...prev, {
                 role: 'assistant',
-                content: 'I received your message: "' + input + '". AI integration coming soon!'
-            };
-            setMessages(prev => [...prev, assistantMessage]);
+                content: `Error: ${error.message}`
+            }]);
+        } finally {
             setIsLoading(false);
-        }, 1000);
+        }
     };
 
     const handleKeyPress = (e) => {
@@ -268,6 +450,65 @@ const ChatPanel = () => {
                     ),
                     React.createElement('div', { className: 'message-content' },
                         msg.content
+                    ),
+                    msg.toolCalls && React.createElement('div', { 
+                        style: { 
+                            marginTop: '12px',
+                            padding: '12px',
+                            backgroundColor: '#f8f9fa',
+                            borderRadius: '6px',
+                            border: '1px solid #e0e0e0'
+                        } 
+                    },
+                        msg.toolCalls.map((toolCall, tcIdx) =>
+                            React.createElement('div', {
+                                key: tcIdx,
+                                style: {
+                                    marginBottom: tcIdx < msg.toolCalls.length - 1 ? '8px' : '0'
+                                }
+                            },
+                                React.createElement('div', {
+                                    style: {
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        gap: '8px',
+                                        marginBottom: '4px'
+                                    }
+                                },
+                                    React.createElement('span', {
+                                        style: {
+                                            fontSize: '12px',
+                                            fontWeight: '600',
+                                            color: '#6366f1'
+                                        }
+                                    }, `Tool: ${toolCall.function}`),
+                                    React.createElement('button', {
+                                        title: JSON.stringify(toolCall.arguments, null, 2),
+                                        onClick: () => {
+                                            const argsText = JSON.stringify(toolCall.arguments, null, 2);
+                                            alert(argsText);
+                                        },
+                                        style: {
+                                            padding: '2px 8px',
+                                            fontSize: '11px',
+                                            backgroundColor: 'white',
+                                            color: '#6366f1',
+                                            border: '1px solid #6366f1',
+                                            borderRadius: '4px',
+                                            cursor: 'pointer',
+                                            fontWeight: '500'
+                                        }
+                                    }, 'Show Args')
+                                ),
+                                React.createElement('div', {
+                                    style: {
+                                        fontSize: '12px',
+                                        color: '#16a34a',
+                                        paddingLeft: '4px'
+                                    }
+                                }, `Successfully executed ${toolCall.function}.`)
+                            )
+                        )
                     )
                 )
             ),
