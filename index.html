@@ -4,23 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Excalidraw App</title>
-    <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
-        
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', sans-serif;
-            overflow: hidden;
-        }
-        
-        #app {
-            width: 100vw;
-            height: 100vh;
-        }
-    </style>
+    <link rel="stylesheet" href="styles.css">
 </head>
 <body>
     <div id="app"></div>
@@ -32,35 +16,6 @@
     <!-- Excalidraw -->
     <script src="https://unpkg.com/@excalidraw/excalidraw@0.17.3/dist/excalidraw.production.min.js"></script>
     
-    <script>
-        const { Excalidraw, MainMenu, WelcomeScreen } = window.ExcalidrawLib;
-        
-        const App = () => {
-            return React.createElement(
-                'div',
-                { style: { height: '100vh', width: '100vw' } },
-                React.createElement(Excalidraw, {
-                    initialData: {
-                        appState: {
-                            viewBackgroundColor: '#ffffff'
-                        }
-                    },
-                    UIOptions: {
-                        canvasActions: {
-                            loadScene: true,
-                            saveAsImage: true,
-                            export: {
-                                saveFileToDisk: true,
-                            },
-                            toggleTheme: true
-                        }
-                    }
-                })
-            );
-        };
-
-        const root = ReactDOM.createRoot(document.getElementById('app'));
-        root.render(React.createElement(App));
-    </script>
+    <script src="app.js"></script>
 </body>
 </html>
