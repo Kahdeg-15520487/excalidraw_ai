@@ -175,11 +175,32 @@ const ChatPanel = () => {
                 throw new Error('Please configure your API key in the Configuration tab');
             }
 
-            // Prepare messages for API
-            const apiMessages = messages.concat([userMessage]).map(msg => ({
+            // Get current canvas state for context
+            const canvasState = window.ExcalidrawAPI.getCanvasState();
+            const canvasElements = canvasState.elements || [];
+            
+            // Create a simplified description of canvas elements
+            const canvasDescription = canvasElements.length > 0 
+                ? `Current canvas contains ${canvasElements.length} element(s):\n${canvasElements.map((el, idx) => {
+                    if (el.type === 'text') {
+                        return `${idx + 1}. Text "${el.text}" at (${Math.round(el.x)}, ${Math.round(el.y)}) [id: ${el.id}]`;
+                    }
+                    return `${idx + 1}. ${el.type} at (${Math.round(el.x)}, ${Math.round(el.y)}), size: ${Math.round(el.width)}x${Math.round(el.height)} [id: ${el.id}]`;
+                }).join('\n')}`
+                : 'Canvas is currently empty.';
+
+            console.log('Canvas Description:', canvasDescription);
+
+            // Prepare messages for API with canvas context
+            const systemMessage = {
+                role: 'system',
+                content: `You are an AI assistant that helps users create and modify Excalidraw diagrams. ${canvasDescription}\n\nWhen positioning new elements, consider the existing elements to avoid overlap and maintain good layout. You will always respond with a tool call to either reply to the user or modify the canvas.`
+            };
+            
+            const apiMessages = [systemMessage].concat(messages.concat([userMessage]).map(msg => ({
                 role: msg.role,
                 content: msg.content
-            }));
+            })));
 
             // Define tools for Excalidraw
             const tools = [
@@ -256,6 +277,28 @@ const ChatPanel = () => {
                             required: ['x', 'y', 'width', 'height']
                         }
                     }
+                },
+                {
+                    type: 'function',
+                    function: {
+                        name: 'update_element',
+                        description: 'Update an existing element on the Excalidraw canvas. Use the element ID from the canvas context.',
+                        parameters: {
+                            type: 'object',
+                            properties: {
+                                elementId: { type: 'string', description: 'ID of the element to update' },
+                                x: { type: 'number', description: 'New X coordinate (optional)' },
+                                y: { type: 'number', description: 'New Y coordinate (optional)' },
+                                width: { type: 'number', description: 'New width (optional)' },
+                                height: { type: 'number', description: 'New height (optional)' },
+                                text: { type: 'string', description: 'New text content for text elements (optional)' },
+                                strokeColor: { type: 'string', description: 'New stroke color (hex, optional)' },
+                                backgroundColor: { type: 'string', description: 'New background color (hex, optional)' },
+                                fontSize: { type: 'number', description: 'New font size for text elements (optional)' }
+                            },
+                            required: ['elementId']
+                        }
+                    }
                 }
             ];
 
@@ -327,6 +370,27 @@ const ChatPanel = () => {
                                     { strokeColor: args.strokeColor, backgroundColor: args.backgroundColor }
                                 );
                                 toolResults.push(`Created ellipse at (${args.x}, ${args.y})`);
+                                break;
+                            case 'update_element':
+                                const updates = {};
+                                if (args.x !== undefined) updates.x = args.x;
+                                if (args.y !== undefined) updates.y = args.y;
+                                if (args.width !== undefined) updates.width = args.width;
+                                if (args.height !== undefined) updates.height = args.height;
+                                if (args.text !== undefined) {
+                                    updates.text = args.text;
+                                    updates.originalText = args.text;
+                                }
+                                if (args.strokeColor !== undefined) updates.strokeColor = args.strokeColor;
+                                if (args.backgroundColor !== undefined) updates.backgroundColor = args.backgroundColor;
+                                if (args.fontSize !== undefined) updates.fontSize = args.fontSize;
+                                
+                                result = window.ExcalidrawAPI.updateElement(args.elementId, updates);
+                                if (result) {
+                                    toolResults.push(`Updated element ${args.elementId}`);
+                                } else {
+                                    toolResults.push(`Element ${args.elementId} not found`);
+                                }
                                 break;
                         }
                     } catch (error) {
@@ -448,9 +512,10 @@ const ChatPanel = () => {
                     React.createElement('div', { className: 'message-label' },
                         msg.role === 'user' ? 'You' : 'AI Assistant'
                     ),
-                    React.createElement('div', { className: 'message-content' },
-                        msg.content
-                    ),
+                    React.createElement('div', { 
+                        className: 'message-content',
+                        dangerouslySetInnerHTML: { __html: marked.parse(msg.content || '') }
+                    }),
                     msg.toolCalls && React.createElement('div', { 
                         style: { 
                             marginTop: '12px',
