@@ -1,4 +1,4 @@
-const { Excalidraw, MainMenu, WelcomeScreen } = window.ExcalidrawLib;
+const { Excalidraw, MainMenu, WelcomeScreen, Sidebar, Footer } = window.ExcalidrawLib;
 const { useState, useRef, useEffect } = React;
 
 const ChatPanel = () => {
@@ -11,23 +11,23 @@ const ChatPanel = () => {
     const [input, setInput] = useState('');
     const [isLoading, setIsLoading] = useState(false);
     const messagesEndRef = useRef(null);
-    
+
     const scrollToBottom = () => {
         messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
     };
-    
+
     useEffect(() => {
         scrollToBottom();
     }, [messages]);
-    
+
     const handleSend = () => {
         if (!input.trim() || isLoading) return;
-        
+
         const userMessage = { role: 'user', content: input };
         setMessages(prev => [...prev, userMessage]);
         setInput('');
         setIsLoading(true);
-        
+
         // Simulate AI response (placeholder for future OpenAI integration)
         setTimeout(() => {
             const assistantMessage = {
@@ -38,28 +38,28 @@ const ChatPanel = () => {
             setIsLoading(false);
         }, 1000);
     };
-    
+
     const handleKeyPress = (e) => {
         if (e.key === 'Enter' && !e.shiftKey) {
             e.preventDefault();
             handleSend();
         }
     };
-    
+
     const handleDrawRectangle = () => {
         // Draw a simple rectangle at a random position
         const x = Math.floor(Math.random() * 400) + 100;
         const y = Math.floor(Math.random() * 400) + 100;
-        
+
         try {
             const result = window.ExcalidrawAPI.addRectangle(x, y, 200, 150, {
                 strokeColor: '#007bff',
                 backgroundColor: '#e3f2fd',
                 fillStyle: 'solid'
             });
-            
+
             console.log('Rectangle created:', result);
-            
+
             const message = {
                 role: 'assistant',
                 content: `Drew a rectangle at position (${x}, ${y})`
@@ -79,15 +79,15 @@ const ChatPanel = () => {
         // Draw simple text at a random position
         const x = Math.floor(Math.random() * 400) + 100;
         const y = Math.floor(Math.random() * 400) + 100;
-        
+
         try {
             const result = window.ExcalidrawAPI.addText(x, y, 'Hello Excalidraw!', {
                 strokeColor: '#28a745',
                 fontSize: 24
             });
-            
+
             console.log('Text created:', result);
-            
+
             const message = {
                 role: 'assistant',
                 content: `Added text at position (${x}, ${y})`
@@ -102,7 +102,7 @@ const ChatPanel = () => {
             setMessages(prev => [...prev, message]);
         }
     };
-    
+
     return React.createElement('div', { className: 'chat-panel' },
         React.createElement('div', { className: 'chat-header' },
             React.createElement('h2', null, 'AI Assistant'),
@@ -166,14 +166,14 @@ const generateId = () => {
 const ExcalidrawAPI = {
     // Get the current Excalidraw API instance
     getInstance: () => excalidrawAPI,
-    
+
     // Add a rectangle to the canvas
     addRectangle: (x, y, width, height, options = {}) => {
         if (!excalidrawAPI) {
             console.error('Excalidraw API not ready');
             return null;
         }
-        
+
         const element = {
             id: generateId(),
             type: 'rectangle',
@@ -201,19 +201,19 @@ const ExcalidrawAPI = {
             link: null,
             locked: false
         };
-        
+
         const currentElements = excalidrawAPI.getSceneElements();
         excalidrawAPI.updateScene({
             elements: [...currentElements, element]
         });
-        
+
         return element;
     },
-    
+
     // Add an ellipse/circle to the canvas
     addEllipse: (x, y, width, height, options = {}) => {
         if (!excalidrawAPI) return null;
-        
+
         const element = {
             id: generateId(),
             type: 'ellipse',
@@ -240,19 +240,19 @@ const ExcalidrawAPI = {
             link: null,
             locked: false
         };
-        
+
         const currentElements = excalidrawAPI.getSceneElements();
         excalidrawAPI.updateScene({
             elements: [...currentElements, element]
         });
-        
+
         return element;
     },
-    
+
     // Add a diamond to the canvas
     addDiamond: (x, y, width, height, options = {}) => {
         if (!excalidrawAPI) return null;
-        
+
         const element = {
             id: generateId(),
             type: 'diamond',
@@ -279,19 +279,19 @@ const ExcalidrawAPI = {
             link: null,
             locked: false
         };
-        
+
         const currentElements = excalidrawAPI.getSceneElements();
         excalidrawAPI.updateScene({
             elements: [...currentElements, element]
         });
-        
+
         return element;
     },
-    
+
     // Add an arrow to the canvas
     addArrow: (startX, startY, endX, endY, options = {}) => {
         if (!excalidrawAPI) return null;
-        
+
         const element = {
             id: generateId(),
             type: 'arrow',
@@ -321,19 +321,19 @@ const ExcalidrawAPI = {
             link: null,
             locked: false
         };
-        
+
         const currentElements = excalidrawAPI.getSceneElements();
         excalidrawAPI.updateScene({
             elements: [...currentElements, element]
         });
-        
+
         return element;
     },
-    
+
     // Add a line to the canvas
     addLine: (startX, startY, endX, endY, options = {}) => {
         if (!excalidrawAPI) return null;
-        
+
         const element = {
             id: generateId(),
             type: 'line',
@@ -361,32 +361,39 @@ const ExcalidrawAPI = {
             link: null,
             locked: false
         };
-        
+
         const currentElements = excalidrawAPI.getSceneElements();
         excalidrawAPI.updateScene({
             elements: [...currentElements, element]
         });
-        
+
         return element;
     },
-    
+
     // Add text to the canvas
     addText: (x, y, text, options = {}) => {
         if (!excalidrawAPI) return null;
-        
+
+        const textContent = typeof text === 'string' ? text : String(text || '');
+        const fontSize = options.fontSize || 20;
+
         const element = {
             id: generateId(),
             type: 'text',
             x: x,
             y: y,
-            width: options.width || 200,
-            height: options.height || 25,
+            width: options.width || (textContent.length * fontSize * 0.6), // Approximate width
+            height: options.height || (fontSize * 1.25), // Approximate height
             angle: 0,
-            text: text,
-            fontSize: options.fontSize || 20,
+            text: textContent,
+            originalText: textContent,
+            fontSize: fontSize,
             fontFamily: options.fontFamily || 1,
             textAlign: options.textAlign || 'left',
             verticalAlign: options.verticalAlign || 'top',
+            lineHeight: options.lineHeight || 1.25,
+            baseline: fontSize * 0.8,
+            containerId: null,
             strokeColor: options.strokeColor || '#000000',
             backgroundColor: options.backgroundColor || 'transparent',
             fillStyle: options.fillStyle || 'solid',
@@ -405,30 +412,30 @@ const ExcalidrawAPI = {
             link: null,
             locked: false
         };
-        
+
         const currentElements = excalidrawAPI.getSceneElements();
         excalidrawAPI.updateScene({
             elements: [...currentElements, element]
         });
-        
+
         return element;
     },
-    
+
     // Delete elements by IDs
     deleteElements: (elementIds) => {
         if (!excalidrawAPI) return;
-        
+
         const currentElements = excalidrawAPI.getSceneElements();
         const filteredElements = currentElements.filter(el => !elementIds.includes(el.id));
         excalidrawAPI.updateScene({
             elements: filteredElements
         });
     },
-    
+
     // Update an existing element
     updateElement: (elementId, updates) => {
         if (!excalidrawAPI) return null;
-        
+
         const currentElements = excalidrawAPI.getSceneElements();
         const updatedElements = currentElements.map(el => {
             if (el.id === elementId) {
@@ -436,27 +443,27 @@ const ExcalidrawAPI = {
             }
             return el;
         });
-        
+
         excalidrawAPI.updateScene({
             elements: updatedElements
         });
-        
+
         return updatedElements.find(el => el.id === elementId);
     },
-    
+
     // Get all elements
     getElements: () => {
         if (!excalidrawAPI) return [];
         return excalidrawAPI.getSceneElements();
     },
-    
+
     // Get element by ID
     getElementById: (elementId) => {
         if (!excalidrawAPI) return null;
         const elements = excalidrawAPI.getSceneElements();
         return elements.find(el => el.id === elementId);
     },
-    
+
     // Clear canvas
     clearCanvas: () => {
         if (!excalidrawAPI) return;
@@ -464,7 +471,7 @@ const ExcalidrawAPI = {
             elements: []
         });
     },
-    
+
     // Get canvas state as JSON
     getCanvasState: () => {
         if (!excalidrawAPI) return null;
@@ -481,36 +488,73 @@ window.ExcalidrawAPI = ExcalidrawAPI;
 
 const App = () => {
     const [excalidrawAPIReady, setExcalidrawAPIReady] = useState(false);
-    
+    const [docked, setDocked] = useState(true);
+
     const handleExcalidrawChange = (elements, appState, files) => {
         // This is called when the scene changes
     };
-    
+
     return React.createElement('div', { style: { display: 'flex', height: '100vh', width: '100vw' } },
         React.createElement('div', { className: 'canvas-container' },
-            React.createElement(Excalidraw, {
-                excalidrawAPI: (api) => {
-                    if (api && !excalidrawAPI) {
-                        excalidrawAPI = api;
-                        setExcalidrawAPIReady(true);
-                        console.log('Excalidraw API ready. Use window.ExcalidrawAPI to interact with the canvas.');
+            React.createElement(Excalidraw,
+                {
+                    excalidrawAPI: (api) => {
+                        if (api && !excalidrawAPI) {
+                            excalidrawAPI = api;
+                            setExcalidrawAPIReady(true);
+                            console.log('Excalidraw API ready. Use window.ExcalidrawAPI to interact with the canvas.');
+                        }
+                    },
+                    onChange: handleExcalidrawChange,
+                    initialData: {
+                        appState: {
+                            viewBackgroundColor: '#ffffff'
+                        }
+                    },
+                    UIOptions: {
+                        canvasActions: {
+                            loadScene: true,
+                            saveAsImage: true,
+                            export: {
+                                saveFileToDisk: true,
+                            },
+                            toggleTheme: true
+                        }
                     }
                 },
-                onChange: handleExcalidrawChange,
-                initialData: {
-                    appState: {
-                        viewBackgroundColor: '#ffffff'
-                    }
-                },
-                UIOptions: {
-                    canvasActions: {
-                        loadScene: false,
-                        saveAsImage: false,
-                        export: false,
-                        toggleTheme: false
-                    }
-                }
-            })
+                React.createElement(MainMenu, null,
+                    React.createElement(MainMenu.DefaultItems.LoadScene)
+                    ,
+                    React.createElement(MainMenu.DefaultItems.SaveAsImage)
+                    ,
+                    React.createElement(MainMenu.DefaultItems.Export)
+                    ,
+                    React.createElement(MainMenu.DefaultItems.ClearCanvas)
+                    ,
+                    React.createElement(MainMenu.DefaultItems.ToggleTheme),
+                    
+                    React.createElement(Sidebar.Trigger, {
+                        name: 'custom',
+                        tab: 'one',
+                        style: {
+                            marginLeft: '0.5rem',
+                            background: '#70b1ec',
+                            color: 'white'
+                        }
+                    }, 'Toggle AI Assistant')
+                ),
+                React.createElement(Sidebar, { name: 'custom', docked: docked, onDock: setDocked },
+                    React.createElement(Sidebar.Header),
+                    React.createElement(Sidebar.Tabs, { style: { padding: '0.5rem' } },
+                        React.createElement(Sidebar.Tab, { tab: 'one' }, 'Tab one!'),
+                        React.createElement(Sidebar.Tab, { tab: 'two' }, 'Tab two!'),
+                        React.createElement(Sidebar.TabTriggers, null,
+                            React.createElement(Sidebar.TabTrigger, { tab: 'one' }, 'One'),
+                            React.createElement(Sidebar.TabTrigger, { tab: 'two' }, 'Two')
+                        )
+                    )
+                )
+            )
         ),
         React.createElement(ChatPanel)
     );
