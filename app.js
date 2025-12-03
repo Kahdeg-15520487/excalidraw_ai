@@ -1,6 +1,144 @@
 const { Excalidraw, MainMenu, WelcomeScreen, Sidebar, Footer } = window.ExcalidrawLib;
 const { useState, useRef, useEffect } = React;
 
+const LLMConfiguration = () => {
+    const [apiKey, setApiKey] = useState('');
+    const [apiEndpoint, setApiEndpoint] = useState('https://api.openai.com/v1');
+    const [model, setModel] = useState('gpt-4');
+    const [temperature, setTemperature] = useState(0.7);
+    const [maxTokens, setMaxTokens] = useState(2000);
+
+    const handleSaveConfig = () => {
+        localStorage.setItem('llm_config', JSON.stringify({
+            apiKey,
+            apiEndpoint,
+            model,
+            temperature,
+            maxTokens
+        }));
+        alert('Configuration saved!');
+    };
+
+    useEffect(() => {
+        const savedConfig = localStorage.getItem('llm_config');
+        if (savedConfig) {
+            const config = JSON.parse(savedConfig);
+            setApiKey(config.apiKey || '');
+            setApiEndpoint(config.apiEndpoint || 'https://api.openai.com/v1');
+            setModel(config.model || 'gpt-4');
+            setTemperature(config.temperature || 0.7);
+            setMaxTokens(config.maxTokens || 2000);
+        }
+    }, []);
+
+    return React.createElement('div', { style: { padding: '20px', height: '100%', overflow: 'auto' } },
+        React.createElement('h3', { style: { marginBottom: '20px', fontSize: '18px', fontWeight: '600' } }, 'LLM Configuration'),
+
+        React.createElement('div', { style: { marginBottom: '20px' } },
+            React.createElement('label', { style: { display: 'block', marginBottom: '8px', fontSize: '14px', fontWeight: '500' } }, 'API Endpoint'),
+            React.createElement('input', {
+                type: 'text',
+                value: apiEndpoint,
+                onChange: (e) => setApiEndpoint(e.target.value),
+                placeholder: 'https://api.openai.com/v1',
+                style: {
+                    width: '100%',
+                    padding: '10px',
+                    border: '1px solid #e0e0e0',
+                    borderRadius: '6px',
+                    fontSize: '14px'
+                }
+            })
+        ),
+
+        React.createElement('div', { style: { marginBottom: '20px' } },
+            React.createElement('label', { style: { display: 'block', marginBottom: '8px', fontSize: '14px', fontWeight: '500' } }, 'API Key'),
+            React.createElement('input', {
+                type: 'password',
+                value: apiKey,
+                onChange: (e) => setApiKey(e.target.value),
+                placeholder: 'Enter your API key',
+                style: {
+                    width: '100%',
+                    padding: '10px',
+                    border: '1px solid #e0e0e0',
+                    borderRadius: '6px',
+                    fontSize: '14px'
+                }
+            })
+        ),
+
+        React.createElement('div', { style: { marginBottom: '20px' } },
+            React.createElement('label', { style: { display: 'block', marginBottom: '8px', fontSize: '14px', fontWeight: '500' } }, 'Model'),
+            React.createElement('select', {
+                value: model,
+                onChange: (e) => setModel(e.target.value),
+                style: {
+                    width: '100%',
+                    padding: '10px',
+                    border: '1px solid #e0e0e0',
+                    borderRadius: '6px',
+                    fontSize: '14px'
+                }
+            },
+                React.createElement('option', { value: 'gpt-4' }, 'GPT-4'),
+                React.createElement('option', { value: 'gpt-4-turbo' }, 'GPT-4 Turbo'),
+                React.createElement('option', { value: 'gpt-3.5-turbo' }, 'GPT-3.5 Turbo')
+            )
+        ),
+
+        React.createElement('div', { style: { marginBottom: '20px' } },
+            React.createElement('label', { style: { display: 'block', marginBottom: '8px', fontSize: '14px', fontWeight: '500' } },
+                `Temperature: ${temperature}`
+            ),
+            React.createElement('input', {
+                type: 'range',
+                min: '0',
+                max: '2',
+                step: '0.1',
+                value: temperature,
+                onChange: (e) => setTemperature(parseFloat(e.target.value)),
+                style: {
+                    width: '100%'
+                }
+            })
+        ),
+
+        React.createElement('div', { style: { marginBottom: '20px' } },
+            React.createElement('label', { style: { display: 'block', marginBottom: '8px', fontSize: '14px', fontWeight: '500' } }, 'Max Tokens'),
+            React.createElement('input', {
+                type: 'number',
+                value: maxTokens,
+                onChange: (e) => setMaxTokens(parseInt(e.target.value)),
+                min: '100',
+                max: '4000',
+                style: {
+                    width: '100%',
+                    padding: '10px',
+                    border: '1px solid #e0e0e0',
+                    borderRadius: '6px',
+                    fontSize: '14px'
+                }
+            })
+        ),
+
+        React.createElement('button', {
+            onClick: handleSaveConfig,
+            style: {
+                width: '100%',
+                padding: '12px',
+                backgroundColor: '#007bff',
+                color: 'white',
+                border: 'none',
+                borderRadius: '8px',
+                fontSize: '14px',
+                fontWeight: '600',
+                cursor: 'pointer'
+            }
+        }, 'Save Configuration')
+    );
+};
+
 const ChatPanel = () => {
     const [messages, setMessages] = useState([
         {
@@ -105,7 +243,7 @@ const ChatPanel = () => {
 
     return React.createElement('div', { className: 'chat-panel' },
         React.createElement('div', { className: 'chat-header' },
-            React.createElement('h2', null, 'AI Assistant'),
+            React.createElement('h2', null, 'Chat'),
             React.createElement('div', { style: { display: 'flex', gap: '5px' } },
                 React.createElement('button', {
                     className: 'test-button',
@@ -490,6 +628,20 @@ const App = () => {
     const [excalidrawAPIReady, setExcalidrawAPIReady] = useState(false);
     const [docked, setDocked] = useState(true);
 
+    useEffect(() => {
+        // Auto-open the sidebar on load
+        const timer = setTimeout(() => {
+            if (excalidrawAPI) {
+                excalidrawAPI.updateScene({
+                    appState: {
+                        openSidebar: { name: 'custom', tab: 'one' }
+                    }
+                });
+            }
+        }, 100);
+        return () => clearTimeout(timer);
+    }, [excalidrawAPIReady]);
+
     const handleExcalidrawChange = (elements, appState, files) => {
         // This is called when the scene changes
     };
@@ -508,7 +660,8 @@ const App = () => {
                     onChange: handleExcalidrawChange,
                     initialData: {
                         appState: {
-                            viewBackgroundColor: '#ffffff'
+                            viewBackgroundColor: '#ffffff',
+                            openSidebar: { name: 'custom', tab: 'one' }
                         }
                     },
                     UIOptions: {
@@ -532,7 +685,7 @@ const App = () => {
                     React.createElement(MainMenu.DefaultItems.ClearCanvas)
                     ,
                     React.createElement(MainMenu.DefaultItems.ToggleTheme),
-                    
+
                     React.createElement(Sidebar.Trigger, {
                         name: 'custom',
                         tab: 'one',
@@ -543,20 +696,25 @@ const App = () => {
                         }
                     }, 'Toggle AI Assistant')
                 ),
-                React.createElement(Sidebar, { name: 'custom', docked: docked, onDock: setDocked },
-                    React.createElement(Sidebar.Header),
-                    React.createElement(Sidebar.Tabs, { style: { padding: '0.5rem' } },
-                        React.createElement(Sidebar.Tab, { tab: 'one' }, 'Tab one!'),
-                        React.createElement(Sidebar.Tab, { tab: 'two' }, 'Tab two!'),
+                React.createElement(Sidebar, { name: 'custom', docked: docked, onDock: setDocked, style: { width: '500px' } },
+                    React.createElement(Sidebar.Header, null,
+                        React.createElement('h2', null, 'AI Assistant'),
+                    ),
+                    React.createElement(Sidebar.Tabs, { style: { padding: '0.5rem', height: '100%', display: 'flex', flexDirection: 'column' } },
+                        React.createElement(Sidebar.Tab, { tab: 'one', style: { flex: 1, overflow: 'auto' } },
+                            React.createElement(ChatPanel)
+                        ),
+                        React.createElement(Sidebar.Tab, { tab: 'two', style: { flex: 1, overflow: 'auto' } },
+                            React.createElement(LLMConfiguration)
+                        ),
                         React.createElement(Sidebar.TabTriggers, null,
-                            React.createElement(Sidebar.TabTrigger, { tab: 'one' }, 'One'),
-                            React.createElement(Sidebar.TabTrigger, { tab: 'two' }, 'Two')
+                            React.createElement(Sidebar.TabTrigger, { tab: 'one' }, 'Chat'),
+                            React.createElement(Sidebar.TabTrigger, { tab: 'two' }, 'Configuration')
                         )
                     )
                 )
             )
-        ),
-        React.createElement(ChatPanel)
+        )
     );
 };
 
