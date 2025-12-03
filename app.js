@@ -148,6 +148,7 @@ const ChatPanel = () => {
     ]);
     const [input, setInput] = useState('');
     const [isLoading, setIsLoading] = useState(false);
+    const [rollbackHistory, setRollbackHistory] = useState([]);
     const messagesEndRef = useRef(null);
 
     const scrollToBottom = () => {
@@ -161,7 +162,13 @@ const ChatPanel = () => {
     const handleSend = async () => {
         if (!input.trim() || isLoading) return;
 
-        const userMessage = { role: 'user', content: input };
+        // Capture canvas snapshot before user message
+        const canvasSnapshot = window.ExcalidrawAPI.getCanvasState();
+        const userMessage = {
+            role: 'user',
+            content: input,
+            canvasSnapshot: canvasSnapshot ? JSON.parse(JSON.stringify(canvasSnapshot.elements)) : []
+        };
         setMessages(prev => [...prev, userMessage]);
         const userInput = input;
         setInput('');
@@ -170,7 +177,7 @@ const ChatPanel = () => {
         try {
             // Get LLM configuration
             const config = JSON.parse(localStorage.getItem('llm_config') || '{}');
-            
+
             if (!config.apiKey) {
                 throw new Error('Please configure your API key in the Configuration tab');
             }
@@ -178,9 +185,9 @@ const ChatPanel = () => {
             // Get current canvas state for context
             const canvasState = window.ExcalidrawAPI.getCanvasState();
             const canvasElements = canvasState.elements || [];
-            
+
             // Create a simplified description of canvas elements
-            const canvasDescription = canvasElements.length > 0 
+            const canvasDescription = canvasElements.length > 0
                 ? `Current canvas contains ${canvasElements.length} element(s):\n${canvasElements.map((el, idx) => {
                     if (el.type === 'text') {
                         return `${idx + 1}. Text "${el.text}" at (${Math.round(el.x)}, ${Math.round(el.y)}) [id: ${el.id}]`;
@@ -196,7 +203,7 @@ const ChatPanel = () => {
                 role: 'system',
                 content: `You are an AI assistant that helps users create and modify Excalidraw diagrams. ${canvasDescription}\n\nWhen positioning new elements, consider the existing elements to avoid overlap and maintain good layout. You will always respond with a tool call to either reply to the user or modify the canvas.`
             };
-            
+
             const apiMessages = [systemMessage].concat(messages.concat([userMessage]).map(msg => ({
                 role: msg.role,
                 content: msg.content
@@ -330,16 +337,16 @@ const ChatPanel = () => {
             if (assistantMessage.tool_calls) {
                 const toolResults = [];
                 const toolCallsData = [];
-                
+
                 for (const toolCall of assistantMessage.tool_calls) {
                     const functionName = toolCall.function.name;
                     const args = JSON.parse(toolCall.function.arguments);
-                    
+
                     toolCallsData.push({
                         function: functionName,
                         arguments: args
                     });
-                    
+
                     let result;
                     try {
                         switch (functionName) {
@@ -384,7 +391,7 @@ const ChatPanel = () => {
                                 if (args.strokeColor !== undefined) updates.strokeColor = args.strokeColor;
                                 if (args.backgroundColor !== undefined) updates.backgroundColor = args.backgroundColor;
                                 if (args.fontSize !== undefined) updates.fontSize = args.fontSize;
-                                
+
                                 result = window.ExcalidrawAPI.updateElement(args.elementId, updates);
                                 if (result) {
                                     toolResults.push(`Updated element ${args.elementId}`);
@@ -421,6 +428,56 @@ const ChatPanel = () => {
         } finally {
             setIsLoading(false);
         }
+    };
+
+    const handleRollback = (targetIndex) => {
+        // Find the target message
+        const targetMessage = messages[targetIndex];
+        if (!targetMessage || targetMessage.role !== 'user') return;
+
+        // Save current state to rollback history
+        const currentCanvas = window.ExcalidrawAPI.getCanvasState();
+        setRollbackHistory(prev => [...prev, {
+            messages: [...messages],
+            canvas: currentCanvas ? JSON.parse(JSON.stringify(currentCanvas.elements)) : [],
+            input: input
+        }]);
+
+        // Restore canvas to snapshot
+        if (targetMessage.canvasSnapshot && window.ExcalidrawAPI.getInstance()) {
+            window.ExcalidrawAPI.getInstance().updateScene({
+                elements: targetMessage.canvasSnapshot
+            });
+        }
+
+        // Put the user message back in the input box
+        setInput(targetMessage.content);
+
+        // Truncate messages to before this user message
+        setMessages(messages.slice(0, targetIndex));
+    };
+
+    const handleRedo = () => {
+        if (rollbackHistory.length === 0) return;
+
+        // Get the last rollback state
+        const lastState = rollbackHistory[rollbackHistory.length - 1];
+
+        // Restore messages
+        setMessages(lastState.messages);
+
+        // Restore canvas
+        if (lastState.canvas && window.ExcalidrawAPI.getInstance()) {
+            window.ExcalidrawAPI.getInstance().updateScene({
+                elements: lastState.canvas
+            });
+        }
+
+        // Restore input
+        setInput(lastState.input);
+
+        // Remove this state from history
+        setRollbackHistory(prev => prev.slice(0, -1));
     };
 
     const handleKeyPress = (e) => {
@@ -492,6 +549,21 @@ const ChatPanel = () => {
             React.createElement('h2', null, 'Chat'),
             React.createElement('div', { style: { display: 'flex', gap: '5px' } },
                 React.createElement('button', {
+                    onClick: handleRedo,
+                    disabled: rollbackHistory.length === 0,
+                    title: 'Redo (revert rollback)',
+                    style: {
+                        padding: '4px 10px',
+                        fontSize: '12px',
+                        backgroundColor: rollbackHistory.length > 0 ? '#4caf50' : '#ccc',
+                        color: 'white',
+                        border: 'none',
+                        borderRadius: '4px',
+                        cursor: rollbackHistory.length > 0 ? 'pointer' : 'not-allowed',
+                        fontWeight: '500'
+                    }
+                }, `↻ Redo${rollbackHistory.length > 0 ? ` (${rollbackHistory.length})` : ''}`),
+                React.createElement('button', {
                     className: 'test-button',
                     onClick: handleDrawRectangle,
                     title: 'Draw a test rectangle'
@@ -507,23 +579,41 @@ const ChatPanel = () => {
             messages.map((msg, idx) =>
                 React.createElement('div', {
                     key: idx,
-                    className: `message ${msg.role}`
+                    className: `message ${msg.role}`,
+                    style: { position: 'relative' }
                 },
-                    React.createElement('div', { className: 'message-label' },
-                        msg.role === 'user' ? 'You' : 'AI Assistant'
+                    React.createElement('div', {
+                        className: 'message-label',
+                        style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between' }
+                    },
+                        React.createElement('span', null, msg.role === 'user' ? 'You' : 'AI Assistant'),
+                        msg.role === 'user' && idx > 0 && React.createElement('button', {
+                            onClick: () => handleRollback(idx),
+                            title: 'Rollback to this point',
+                            style: {
+                                padding: '2px 8px',
+                                fontSize: '11px',
+                                backgroundColor: '#ff9800',
+                                color: 'white',
+                                border: 'none',
+                                borderRadius: '4px',
+                                cursor: 'pointer',
+                                fontWeight: '500'
+                            }
+                        }, '↺ Rollback')
                     ),
-                    React.createElement('div', { 
+                    React.createElement('div', {
                         className: 'message-content',
                         dangerouslySetInnerHTML: { __html: marked.parse(msg.content || '') }
                     }),
-                    msg.toolCalls && React.createElement('div', { 
-                        style: { 
+                    msg.toolCalls && React.createElement('div', {
+                        style: {
                             marginTop: '12px',
                             padding: '12px',
                             backgroundColor: '#f8f9fa',
                             borderRadius: '6px',
                             border: '1px solid #e0e0e0'
-                        } 
+                        }
                     },
                         msg.toolCalls.map((toolCall, tcIdx) =>
                             React.createElement('div', {
@@ -979,7 +1069,8 @@ const App = () => {
                             },
                             toggleTheme: true
                         }
-                    }
+                    },
+                    validateEmbeddable: () => true
                 },
                 React.createElement(MainMenu, null,
                     React.createElement(MainMenu.DefaultItems.LoadScene)
