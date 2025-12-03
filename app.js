@@ -74,15 +74,50 @@ const ChatPanel = () => {
             setMessages(prev => [...prev, message]);
         }
     };
+
+    const handleDrawText = () => {
+        // Draw simple text at a random position
+        const x = Math.floor(Math.random() * 400) + 100;
+        const y = Math.floor(Math.random() * 400) + 100;
+        
+        try {
+            const result = window.ExcalidrawAPI.addText(x, y, 'Hello Excalidraw!', {
+                strokeColor: '#28a745',
+                fontSize: 24
+            });
+            
+            console.log('Text created:', result);
+            
+            const message = {
+                role: 'assistant',
+                content: `Added text at position (${x}, ${y})`
+            };
+            setMessages(prev => [...prev, message]);
+        } catch (error) {
+            console.error('Error drawing text:', error);
+            const message = {
+                role: 'assistant',
+                content: `Error: ${error.message}`
+            };
+            setMessages(prev => [...prev, message]);
+        }
+    };
     
     return React.createElement('div', { className: 'chat-panel' },
         React.createElement('div', { className: 'chat-header' },
             React.createElement('h2', null, 'AI Assistant'),
-            React.createElement('button', {
-                className: 'test-button',
-                onClick: handleDrawRectangle,
-                title: 'Draw a test rectangle'
-            }, '🔷 Draw Rectangle')
+            React.createElement('div', { style: { display: 'flex', gap: '5px' } },
+                React.createElement('button', {
+                    className: 'test-button',
+                    onClick: handleDrawRectangle,
+                    title: 'Draw a test rectangle'
+                }, '🔷 Rect'),
+                React.createElement('button', {
+                    className: 'test-button',
+                    onClick: handleDrawText,
+                    title: 'Draw test text'
+                }, '📝 Text')
+            )
         ),
         React.createElement('div', { className: 'chat-messages' },
             messages.map((msg, idx) =>
@@ -167,23 +202,12 @@ const ExcalidrawAPI = {
             locked: false
         };
         
-        console.log('Creating element:', element);
+        const currentElements = excalidrawAPI.getSceneElements();
+        excalidrawAPI.updateScene({
+            elements: [...currentElements, element]
+        });
         
-        try {
-            const currentElements = excalidrawAPI.getSceneElements();
-            console.log('Current elements:', currentElements.length);
-            
-            excalidrawAPI.updateScene({
-                elements: [...currentElements, element]
-            });
-            
-            console.log('Scene updated, new element count:', excalidrawAPI.getSceneElements().length);
-            
-            return element;
-        } catch (error) {
-            console.error('Error in addRectangle:', error);
-            throw error;
-        }
+        return element;
     },
     
     // Add an ellipse/circle to the canvas
