@@ -1,0 +1,51 @@
+@using Microsoft.JSInterop
+@inject IJSRuntime JSRuntime
+
+<div id="@ContainerId" style="height: 100vh; width: 100%; border: 1px solid #ccc;"></div>
+
+@code {
+    [Parameter] public string ContainerId { get; set; } = "excalidraw-container";
+    private IJSObjectReference? _module;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            // The bundle is loaded globally via script tag in index.html, 
+            // so we access window functions directly or via a module if we exported one.
+            // Our webpack config exported library 'ExcalidrawInterop'.
+            
+            // However, we attached 'mountExcalidraw' to window.
+            await JSRuntime.InvokeVoidAsync("mountExcalidraw", ContainerId, DotNetObjectReference.Create(this));
+        }
+    }
+
+    public async Task AddRectangle(double x, double y, double width, double height, string color = "black")
+    {
+        var elements = new[]
+        {
+            new 
+            {
+                type = "rectangle",
+                x = x,
+                y = y,
+                width = width,
+                height = height,
+                strokeColor = color,
+                backgroundColor = "transparent",
+                fillStyle = "hachure",
+                strokeWidth = 1,
+                roughness = 1,
+                opacity = 100
+            }
+        };
+        
+        await JSRuntime.InvokeVoidAsync("addExcalidrawElements", ContainerId, elements);
+    }
+    
+    // Generic method to add any element
+    public async Task AddElements(object elements)
+    {
+        await JSRuntime.InvokeVoidAsync("addExcalidrawElements", ContainerId, elements);
+    }
+}
