@@ -8,7 +8,8 @@ obj
 **/bin/
 **/obj/
 **/node_modules/
-**/dist/
+# Don't exclude lib/bootstrap/dist - only exclude build output dist folders
+AiDiagram.JsAdapter/dist/
 **/build/
 **/out/
 **/coverage/

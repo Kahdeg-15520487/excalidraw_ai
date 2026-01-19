@@ -1,7 +1,15 @@
 ﻿@page "/"
 
-<PageTitle>Home</PageTitle>
+<div id="excalidraw-main" style="height: 100%; width: 100%;"></div>
 
-<h1>Hello, world!</h1>
+@code {
+    [Inject] private IJSRuntime JSRuntime { get; set; } = default!;
 
-Welcome to your new app.
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            await JSRuntime.InvokeVoidAsync("mountExcalidraw", "excalidraw-main", null);
+        }
+    }
+}

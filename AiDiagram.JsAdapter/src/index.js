@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useRef, useImperativeHandle, forwardRef } from 'react';
 import { createRoot } from 'react-dom/client';
 import { Excalidraw, convertToExcalidrawElements } from "@excalidraw/excalidraw";
+import "@excalidraw/excalidraw/index.css";
 
 const ExcalidrawWrapper = forwardRef((props, ref) => {
     const [excalidrawAPI, setExcalidrawAPI] = useState(null);

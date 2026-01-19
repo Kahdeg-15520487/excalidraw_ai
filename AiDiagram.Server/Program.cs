@@ -40,6 +40,12 @@ if (!app.Environment.IsDevelopment())
     app.UseHttpsRedirection();
 }
 
+// Serve static files (Blazor WASM requires .dat, .wasm, etc.)
+app.UseStaticFiles(new StaticFileOptions
+{
+    ServeUnknownFileTypes = true // Required for Blazor WASM .dat files
+});
+
 // Map SignalR Hub
 app.MapHub<DiagramHub>("/diagramhub");
 
@@ -52,6 +58,9 @@ app.MapPost("/api/chat", async (ChatRequest request, AgentService agentService) 
     var response = await agentService.ProcessMessageAsync(request.SessionId, request.Message);
     return Results.Ok(new { response });
 });
+
+// Fallback to index.html for SPA routing
+app.MapFallbackToFile("index.html");
 
 app.Run();
 
