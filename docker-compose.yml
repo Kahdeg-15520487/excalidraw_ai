@@ -7,7 +7,8 @@ services:
       - "8080:8080"
     environment:
       - ASPNETCORE_ENVIRONMENT=Development
+      - OpenAI__Endpoint=${OPENAI_ENDPOINT:-http://localhost:5000/v1}
       - OpenAI__ApiKey=${OPENAI_API_KEY}
       - OpenAI__Model=${OPENAI_MODEL:-gpt-4o-mini}
-    volumes:
-      - ./appsettings.json:/app/appsettings.json:ro
+      # MCP self-connect: the app talks to itself at /mcp
+      - MCP__Endpoint=http://localhost:8080/mcp

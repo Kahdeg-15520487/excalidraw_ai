@@ -19,8 +19,9 @@ builder.Services.AddCors(options =>
     });
 });
 
-// Add MCP Server
+// Add MCP Server with HTTP transport
 builder.Services.AddMcpServer()
+    .WithHttpTransport()
     .WithTools<ExcalidrawTools>();
 
 var app = builder.Build();
@@ -32,7 +33,12 @@ if (app.Environment.IsDevelopment())
 }
 
 app.UseCors();
-app.UseHttpsRedirection();
+
+// Only use HTTPS redirect in production with proper HTTPS setup
+if (!app.Environment.IsDevelopment())
+{
+    app.UseHttpsRedirection();
+}
 
 // Map SignalR Hub
 app.MapHub<DiagramHub>("/diagramhub");
