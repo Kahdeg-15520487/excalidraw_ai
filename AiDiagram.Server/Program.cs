@@ -1,8 +1,27 @@
+using AiDiagram.Server.Hubs;
+using AiDiagram.Server.MCP;
+using AiDiagram.Server.Services;
+
 var builder = WebApplication.CreateBuilder(args);
 
 // Add services to the container.
-// Learn more about configuring OpenAPI at https://aka.ms/aspnet/openapi
 builder.Services.AddOpenApi();
+builder.Services.AddSignalR();
+builder.Services.AddSingleton<AgentService>();
+builder.Services.AddCors(options =>
+{
+    options.AddDefaultPolicy(policy =>
+    {
+        policy.WithOrigins("http://localhost:5000", "http://localhost:5173", "http://localhost:8080")
+              .AllowAnyHeader()
+              .AllowAnyMethod()
+              .AllowCredentials();
+    });
+});
+
+// Add MCP Server
+builder.Services.AddMcpServer()
+    .WithTools<ExcalidrawTools>();
 
 var app = builder.Build();
 
@@ -12,30 +31,22 @@ if (app.Environment.IsDevelopment())
     app.MapOpenApi();
 }
 
+app.UseCors();
 app.UseHttpsRedirection();
 
-var summaries = new[]
-{
-    "Freezing", "Bracing", "Chilly", "Cool", "Mild", "Warm", "Balmy", "Hot", "Sweltering", "Scorching"
-};
+// Map SignalR Hub
+app.MapHub<DiagramHub>("/diagramhub");
 
-app.MapGet("/weatherforecast", () =>
+// Map MCP Server endpoint
+app.MapMcp("/mcp");
+
+// Chat endpoint
+app.MapPost("/api/chat", async (ChatRequest request, AgentService agentService) =>
 {
-    var forecast =  Enumerable.Range(1, 5).Select(index =>
-        new WeatherForecast
-        (
-            DateOnly.FromDateTime(DateTime.Now.AddDays(index)),
-            Random.Shared.Next(-20, 55),
-            summaries[Random.Shared.Next(summaries.Length)]
-        ))
-        .ToArray();
-    return forecast;
-})
-.WithName("GetWeatherForecast");
+    var response = await agentService.ProcessMessageAsync(request.SessionId, request.Message);
+    return Results.Ok(new { response });
+});
 
 app.Run();
 
-record WeatherForecast(DateOnly Date, int TemperatureC, string? Summary)
-{
-    public int TemperatureF => 32 + (int)(TemperatureC / 0.5556);
-}
+public record ChatRequest(string SessionId, string Message);
