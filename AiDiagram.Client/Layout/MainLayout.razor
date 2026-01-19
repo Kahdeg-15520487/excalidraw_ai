@@ -1,7 +1,12 @@
 ﻿@inherits LayoutComponentBase
 
 <div class="app-container">
-    @Body
+    <div class="canvas-area">
+        @Body
+    </div>
+    <div class="chat-panel">
+        <AiDiagram.Client.Components.ChatPanel />
+    </div>
 </div>
 
 <style>
@@ -11,5 +16,21 @@
         margin: 0;
         padding: 0;
         overflow: hidden;
+        display: flex;
+    }
+
+    .canvas-area {
+        flex: 1;
+        height: 100%;
+        overflow: hidden;
+    }
+
+    .chat-panel {
+        width: 350px;
+        height: 100%;
+        border-left: 1px solid #e0e0e0;
+        background: #fafafa;
+        display: flex;
+        flex-direction: column;
     }
 </style>

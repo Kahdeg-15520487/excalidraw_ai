@@ -30,4 +30,10 @@ public class DiagramHub : Hub
     {
         return _sessionMap.TryGetValue(sessionId, out var connectionId) ? connectionId : null;
     }
+
+    public async Task SendMessage(string user, string message)
+    {
+        // Echo back for now - can be extended to integrate with AI service
+        await Clients.Caller.SendAsync("ReceiveMessage", "Assistant", $"You said: {message}");
+    }
 }
