@@ -36,6 +36,7 @@
         <textarea @bind="currentMessage" 
                   @bind:event="oninput"
                   @onkeydown="HandleKeyDown"
+                  @onkeydown:preventDefault="shouldPreventDefault"
                   placeholder="Type a message..." 
                   rows="2"></textarea>
         <button @onclick="SendMessage" disabled="@(string.IsNullOrWhiteSpace(currentMessage) || isSending)">
@@ -223,13 +224,29 @@
     private List<ChatMessage> messages = new();
     private string currentMessage = "";
     private bool isSending = false;
+    private bool shouldPreventDefault = false;
     private ElementReference messagesContainer;
     private HubConnection? hubConnection;
-    private string sessionId = Guid.NewGuid().ToString();
+    private string sessionId = "";
     private const string ExcalidrawContainerId = "excalidraw-main";
+    private const string SessionIdKey = "ai_diagram_session_id";
 
     protected override async Task OnInitializedAsync()
     {
+        // Load or create session ID from localStorage for history persistence
+        sessionId = await JSRuntime.InvokeAsync<string?>("localStorage.getItem", SessionIdKey) ?? "";
+        if (string.IsNullOrEmpty(sessionId))
+        {
+            sessionId = Guid.NewGuid().ToString();
+            await JSRuntime.InvokeVoidAsync("localStorage.setItem", SessionIdKey, sessionId);
+        }
+        
+        // Initialize IndexedDB for chat history
+        await JSRuntime.InvokeVoidAsync("ChatHistoryDB.init");
+        
+        // Load existing history from IndexedDB
+        await LoadHistoryFromIndexedDB();
+        
         // Initialize SignalR connection with session ID for sticky session support
         var hubUrl = Navigation.ToAbsoluteUri($"/diagramhub?sessionId={sessionId}");
         hubConnection = new HubConnectionBuilder()
@@ -237,10 +254,12 @@
             .WithAutomaticReconnect()
             .Build();
 
-        hubConnection.On<string, string>("ReceiveMessage", (user, message) =>
+        hubConnection.On<string, string>("ReceiveMessage", async (user, message) =>
         {
-            messages.Add(new ChatMessage { Content = message, IsUser = false });
-            InvokeAsync(StateHasChanged);
+            var chatMessage = new ChatMessage { Content = message, IsUser = false };
+            messages.Add(chatMessage);
+            await SaveMessageToIndexedDB(chatMessage);
+            await InvokeAsync(StateHasChanged);
         });
 
         // Handle tool execution from the agent - RETURNS a result for blocking RPC
@@ -303,6 +322,9 @@
 
     private async Task HandleKeyDown(KeyboardEventArgs e)
     {
+        // Prevent Enter from adding newline when sending (but allow Shift+Enter for newlines)
+        shouldPreventDefault = e.Key == "Enter" && !e.ShiftKey;
+        
         if (e.Key == "Enter" && !e.ShiftKey)
         {
             await SendMessage();
@@ -316,15 +338,20 @@
         var messageToSend = currentMessage.Trim();
         currentMessage = "";
         isSending = true;
+        StateHasChanged(); // Clear input immediately
 
-        messages.Add(new ChatMessage { Content = messageToSend, IsUser = true });
+        var userMessage = new ChatMessage { Content = messageToSend, IsUser = true };
+        messages.Add(userMessage);
+        await SaveMessageToIndexedDB(userMessage);
         StateHasChanged();
 
         try
         {
             if (hubConnection is not null)
             {
-                await hubConnection.SendAsync("SendMessage", "User", messageToSend);
+                // Get history formatted for LLM from IndexedDB
+                var history = await JSRuntime.InvokeAsync<System.Text.Json.JsonElement[]>("ChatHistoryDB.getHistoryForLLM", sessionId);
+                await hubConnection.SendAsync("SendMessageWithHistory", "User", messageToSend, history);
             }
         }
         catch (Exception ex)
@@ -343,6 +370,47 @@
         if (hubConnection is not null)
         {
             await hubConnection.DisposeAsync();
+        }
+    }
+
+    private async Task LoadHistoryFromIndexedDB()
+    {
+        try
+        {
+            var history = await JSRuntime.InvokeAsync<System.Text.Json.JsonElement[]>("ChatHistoryDB.getHistory", sessionId);
+            foreach (var msg in history)
+            {
+                messages.Add(new ChatMessage
+                {
+                    Content = msg.GetProperty("content").GetString() ?? "",
+                    IsUser = msg.GetProperty("isUser").GetBoolean(),
+                    IsToolCall = msg.TryGetProperty("isToolCall", out var toolCall) && toolCall.GetBoolean(),
+                    ToolAction = msg.TryGetProperty("toolAction", out var action) ? action.GetString() : null
+                });
+            }
+            StateHasChanged();
+        }
+        catch (Exception ex)
+        {
+            await JSRuntime.InvokeVoidAsync("console.warn", "[ChatPanel] Failed to load history:", ex.Message);
+        }
+    }
+
+    private async Task SaveMessageToIndexedDB(ChatMessage message)
+    {
+        try
+        {
+            var jsMessage = new { 
+                content = message.Content, 
+                isUser = message.IsUser,
+                isToolCall = message.IsToolCall,
+                toolAction = message.ToolAction
+            };
+            await JSRuntime.InvokeVoidAsync("ChatHistoryDB.saveMessage", sessionId, jsMessage);
+        }
+        catch (Exception ex)
+        {
+            await JSRuntime.InvokeVoidAsync("console.warn", "[ChatPanel] Failed to save message:", ex.Message);
         }
     }
 

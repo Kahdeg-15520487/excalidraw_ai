@@ -40,6 +40,12 @@ public class DiagramHub : Hub
 
     public async Task SendMessage(string user, string message)
     {
+        // Legacy method - redirect to SendMessageWithHistory with empty history
+        await SendMessageWithHistory(user, message, Array.Empty<object>());
+    }
+
+    public async Task SendMessageWithHistory(string user, string message, object[] history)
+    {
         // Get session ID from connection
         var sessionId = _sessionMap.FirstOrDefault(x => x.Value == Context.ConnectionId).Key;
         
@@ -51,8 +57,8 @@ public class DiagramHub : Hub
 
         try
         {
-            // Process message through AI agent
-            var response = await _agentService.ProcessMessageAsync(sessionId, message);
+            // Process message through AI agent with history
+            var response = await _agentService.ProcessMessageWithHistoryAsync(sessionId, message, history);
             await Clients.Caller.SendAsync("ReceiveMessage", "Assistant", response);
         }
         catch (Exception ex)

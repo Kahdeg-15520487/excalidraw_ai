@@ -445,3 +445,190 @@ window.updateExcalidrawScene = (containerId, sceneData) => {
         ref.current.updateScene(sceneData);
     }
 };
+
+// ============================================
+// ChatHistoryDB - IndexedDB for chat history
+// ============================================
+
+const DB_NAME = 'AiDiagramChatDB';
+const DB_VERSION = 1;
+const STORE_NAME = 'chatHistory';
+
+let dbInstance = null;
+
+const openDatabase = () => {
+    return new Promise((resolve, reject) => {
+        if (dbInstance) {
+            resolve(dbInstance);
+            return;
+        }
+
+        const request = indexedDB.open(DB_NAME, DB_VERSION);
+
+        request.onerror = () => {
+            console.error('[ChatHistoryDB] Failed to open database:', request.error);
+            reject(request.error);
+        };
+
+        request.onsuccess = () => {
+            dbInstance = request.result;
+            console.log('[ChatHistoryDB] Database opened successfully');
+            resolve(dbInstance);
+        };
+
+        request.onupgradeneeded = (event) => {
+            const db = event.target.result;
+            if (!db.objectStoreNames.contains(STORE_NAME)) {
+                const store = db.createObjectStore(STORE_NAME, { keyPath: 'id', autoIncrement: true });
+                store.createIndex('sessionId', 'sessionId', { unique: false });
+                console.log('[ChatHistoryDB] Object store created');
+            }
+        };
+    });
+};
+
+window.ChatHistoryDB = {
+    // Initialize database
+    init: async () => {
+        await openDatabase();
+        console.log('[ChatHistoryDB] Initialized');
+    },
+
+    // Save a message to history
+    saveMessage: async (sessionId, message) => {
+        const db = await openDatabase();
+        return new Promise((resolve, reject) => {
+            const transaction = db.transaction([STORE_NAME], 'readwrite');
+            const store = transaction.objectStore(STORE_NAME);
+
+            const record = {
+                sessionId: sessionId,
+                content: message.content,
+                isUser: message.isUser,
+                isToolCall: message.isToolCall || false,
+                toolAction: message.toolAction || null,
+                timestamp: Date.now()
+            };
+
+            const request = store.add(record);
+            request.onsuccess = () => {
+                console.log('[ChatHistoryDB] Message saved:', record);
+                resolve(request.result);
+            };
+            request.onerror = () => {
+                console.error('[ChatHistoryDB] Failed to save message:', request.error);
+                reject(request.error);
+            };
+        });
+    },
+
+    // Get all messages for a session
+    getHistory: async (sessionId) => {
+        const db = await openDatabase();
+        return new Promise((resolve, reject) => {
+            const transaction = db.transaction([STORE_NAME], 'readonly');
+            const store = transaction.objectStore(STORE_NAME);
+            const index = store.index('sessionId');
+            const request = index.getAll(sessionId);
+
+            request.onsuccess = () => {
+                const messages = request.result.sort((a, b) => a.timestamp - b.timestamp);
+                console.log('[ChatHistoryDB] Retrieved history:', messages.length, 'messages');
+                resolve(messages);
+            };
+            request.onerror = () => {
+                console.error('[ChatHistoryDB] Failed to get history:', request.error);
+                reject(request.error);
+            };
+        });
+    },
+
+    // Clear history for a session
+    clearHistory: async (sessionId) => {
+        const db = await openDatabase();
+        return new Promise((resolve, reject) => {
+            const transaction = db.transaction([STORE_NAME], 'readwrite');
+            const store = transaction.objectStore(STORE_NAME);
+            const index = store.index('sessionId');
+            const request = index.openCursor(sessionId);
+
+            request.onsuccess = (event) => {
+                const cursor = event.target.result;
+                if (cursor) {
+                    cursor.delete();
+                    cursor.continue();
+                } else {
+                    console.log('[ChatHistoryDB] History cleared for session:', sessionId);
+                    resolve();
+                }
+            };
+            request.onerror = () => {
+                console.error('[ChatHistoryDB] Failed to clear history:', request.error);
+                reject(request.error);
+            };
+        });
+    },
+
+    // Get history formatted for LLM (just role + content)
+    getHistoryForLLM: async (sessionId) => {
+        const messages = await window.ChatHistoryDB.getHistory(sessionId);
+        return messages
+            .filter(m => !m.isToolCall) // Exclude tool calls from LLM history
+            .map(m => ({
+                role: m.isUser ? 'user' : 'assistant',
+                content: m.content
+            }));
+    },
+
+    // Get all unique sessions with metadata
+    getAllSessions: async () => {
+        const db = await openDatabase();
+        return new Promise((resolve, reject) => {
+            const transaction = db.transaction([STORE_NAME], 'readonly');
+            const store = transaction.objectStore(STORE_NAME);
+            const request = store.getAll();
+
+            request.onsuccess = () => {
+                const messages = request.result;
+                // Group by sessionId and get first/last message for each
+                const sessionsMap = new Map();
+                messages.forEach(msg => {
+                    if (!sessionsMap.has(msg.sessionId)) {
+                        sessionsMap.set(msg.sessionId, {
+                            sessionId: msg.sessionId,
+                            messageCount: 0,
+                            firstMessage: msg.timestamp,
+                            lastMessage: msg.timestamp,
+                            preview: msg.content?.substring(0, 50) || ''
+                        });
+                    }
+                    const session = sessionsMap.get(msg.sessionId);
+                    session.messageCount++;
+                    if (msg.timestamp < session.firstMessage) {
+                        session.firstMessage = msg.timestamp;
+                        if (msg.isUser) session.preview = msg.content?.substring(0, 50) || '';
+                    }
+                    if (msg.timestamp > session.lastMessage) {
+                        session.lastMessage = msg.timestamp;
+                    }
+                });
+
+                const sessions = Array.from(sessionsMap.values())
+                    .sort((a, b) => b.lastMessage - a.lastMessage);
+                console.log('[ChatHistoryDB] Found sessions:', sessions.length);
+                resolve(sessions);
+            };
+            request.onerror = () => {
+                console.error('[ChatHistoryDB] Failed to get sessions:', request.error);
+                reject(request.error);
+            };
+        });
+    },
+
+    // Delete a session
+    deleteSession: async (sessionId) => {
+        await window.ChatHistoryDB.clearHistory(sessionId);
+        console.log('[ChatHistoryDB] Session deleted:', sessionId);
+    }
+};
+

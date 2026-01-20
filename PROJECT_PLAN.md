@@ -4,338 +4,196 @@
 
 An LLM-powered technical diagram authoring application that combines Excalidraw's diagram editor with an AI chat interface. Users can create and modify diagrams through natural language interactions with an OpenAI-compatible endpoint.
 
-## Architecture Decision: In-App Tool Calling vs MCP
+## Implementation Status
 
-### Question: Should we use MCP (Model Context Protocol) or in-app tool calling?
+> **Last Updated:** 2026-01-20
 
-**Decision: In-App Tool Calling**
+### ✅ Completed Features
 
-### Comparison
+| Feature | Description |
+|---------|-------------|
+| **Excalidraw Integration** | Full Excalidraw canvas embedded in Blazor WASM app |
+| **Chat Panel** | Real-time chat interface with SignalR |
+| **MCP Tool Server** | Backend exposes tools via MCP protocol (HTTP transport) |
+| **Blocking Tool Calls** | SignalR `InvokeAsync<T>` ensures agent waits for frontend acknowledgment |
+| **Complete Tool Set** | `addRectangle`, `addEllipse`, `addDiamond`, `addArrow`, `addLine`, `addText`, `updateElement`, `deleteElements`, `clearCanvas`, `getCanvasState` |
+| **Tool Call Display** | Tool calls visible in chat with 🔧 icon and parameter JSON |
+| **Markdown Rendering** | Chat messages render markdown with code block styling (Markdig) |
+| **Canvas State Retrieval** | `getCanvasState` returns actual elements and app state |
+| **Docker Deployment** | Single container with both server and client |
 
-#### MCP Server Architecture
-**Pros:**
-- Standardized protocol for tool exposure
-- Reusable server across multiple clients (web, desktop, CLI)
-- Better separation of concerns
-- Server-side validation and execution
-- Support for multiple transport types (stdio, HTTP, WebSocket)
+### 🚧 In Progress / Planned
 
-**Cons:**
-- Added architectural complexity
-- Requires server deployment and management
-- Transport overhead for each tool call
-- Slower development iteration
-- Need to maintain separate server codebase
+| Feature | Status |
+|---------|--------|
+| Canvas state in LLM context | Planned - send elements to LLM for awareness |
+| Undo/Rollback | Planned - snapshot history for AI changes |
+| Configuration UI | Planned - API key/endpoint settings in sidebar |
+| Streaming responses | Planned - stream AI responses to chat |
 
-#### In-App Tool Calling Architecture
-**Pros:**
-- Simpler architecture - all logic in browser
-- Faster development and iteration
-- No backend deployment required
-- Direct access to Excalidraw API
-- Easier debugging and testing
-- Lower latency for tool execution
+---
 
-**Cons:**
-- Tool logic coupled to frontend
-- Harder to share across multiple applications
-- All processing happens client-side
+## Architecture Decision: MCP with SignalR RPC
 
-### Rationale for In-App Approach
+### Final Decision: **MCP Server + SignalR for Tool Execution**
 
-1. **MVP Focus**: Faster time-to-market for single-application use case
-2. **No Backend Needed**: Pure client-side application
-3. **Direct Integration**: Direct access to Excalidraw's JavaScript API
-4. **Simpler Deployment**: Static hosting (Vercel, Netlify, GitHub Pages)
-5. **Future Migration Path**: Can abstract tool execution layer to enable MCP migration later if multi-client support is needed
+We implemented a hybrid approach that combines the benefits of MCP with real-time SignalR communication:
+
+1. **MCP Server** - Backend exposes Excalidraw tools via MCP protocol
+2. **SignalR Hub** - Real-time bidirectional communication between server and client
+3. **Blocking RPC** - `InvokeAsync<T>` ensures server waits for client confirmation
+
+### Architecture Flow
+```
+User Message → SignalR Hub → AI Agent → MCP Tools → SignalR InvokeAsync → Frontend JS → Excalidraw API
+                                                              ↓
+                                                   ToolCallResult (ack)
+```
+
+---
 
 ## Technical Architecture
 
-### Frontend Stack
-- **Framework**: React + TypeScript
-- **Build Tool**: Vite
-- **Diagram Editor**: @excalidraw/excalidraw
-- **LLM Integration**: OpenAI SDK (supports custom endpoints)
-- **State Management**: React hooks + context
+### Stack
+
+| Component | Technology |
+|-----------|------------|
+| **Frontend** | Blazor WebAssembly (.NET 9) |
+| **Canvas** | @excalidraw/excalidraw (React, bundled via Vite) |
+| **Backend** | ASP.NET Core (.NET 9) |
+| **Real-time** | SignalR |
+| **AI Integration** | Microsoft.Extensions.AI + OpenAI SDK |
+| **Tool Protocol** | Model Context Protocol (MCP) - HTTP transport |
+| **Container** | Docker (single container) |
+
+### Project Structure
+```
+AiDiagram/
+├── AiDiagram.Server/           # ASP.NET Core backend
+│   ├── Hubs/DiagramHub.cs      # SignalR hub
+│   ├── MCP/ExcalidrawMcpTools.cs  # MCP tool definitions
+│   └── Services/AgentService.cs   # AI agent orchestration
+├── AiDiagram.Client/           # Blazor WASM frontend
+│   ├── Components/
+│   │   ├── ChatPanel.razor     # Chat UI + SignalR handler
+│   │   └── ExcalidrawWrapper.razor
+│   └── wwwroot/
+├── AiDiagram.Shared/           # Shared DTOs
+│   └── DTOs.cs                 # ToolCallResult, etc.
+├── AiDiagram.JsAdapter/        # React/Excalidraw bundle
+│   └── src/index.js            # ExcalidrawAPI wrapper
+└── docker-compose.yml
+```
 
 ### Layout Design
 ```
 ┌─────────────────────────────────────────────────────┐
-│  Excalidraw Canvas        │    Chat Panel           │
-│  (Diagram Editor)         │                         │
-│                           │  ┌─────────────────┐    │
-│                           │  │ Message History │    │
-│                           │  │                 │    │
-│                           │  │ User: ...       │    │
-│                           │  │ AI: ...         │    │
-│                           │  │                 │    │
-│                           │  └─────────────────┘    │
-│                           │  ┌─────────────────┐    │
-│                           │  │ Input Field     │    │
-│                           │  └─────────────────┘    │
-│                           │  [Send] [Undo AI]       │
+│  Excalidraw Canvas          │    Chat Panel         │
+│  (React via JS Interop)     │                       │
+│                             │  ┌─────────────────┐  │
+│                             │  │ Message History │  │
+│                             │  │ (with markdown) │  │
+│                             │  │ 🔧 Tool calls   │  │
+│                             │  └─────────────────┘  │
+│                             │  ┌─────────────────┐  │
+│                             │  │ Input Field     │  │
+│                             │  └─────────────────┘  │
+│                             │  [Send]               │
 └─────────────────────────────────────────────────────┘
 ```
 
-### Context Management Strategy
+---
 
-**Question: How to maintain diagram state context for the LLM?**
+## Tool Definitions (MCP Server)
 
-**Answer:** Serialize the entire Excalidraw scene as JSON and include it in the LLM context.
+All tools are defined in `ExcalidrawMcpTools.cs` and use `InvokeAsync<ToolCallResult>` for blocking RPC.
 
-**Implementation:**
-```typescript
-// On each user message:
-const elements = excalidrawAPI.getSceneElements();
-const appState = excalidrawAPI.getAppState();
-const files = excalidrawAPI.getFiles();
+| Tool | Parameters | Description |
+|------|------------|-------------|
+| `AddRectangle` | x, y, width, height, strokeColor, backgroundColor | Create rectangle |
+| `AddEllipse` | x, y, width, height, strokeColor, backgroundColor | Create ellipse/circle |
+| `AddDiamond` | x, y, width, height, strokeColor, backgroundColor | Create diamond shape |
+| `AddArrow` | startX, startY, endX, endY, strokeColor | Draw arrow between points |
+| `AddLine` | startX, startY, endX, endY, strokeColor | Draw line between points |
+| `AddText` | x, y, text, fontSize, strokeColor | Add text element |
+| `UpdateElement` | elementId, x?, y?, width?, height?, text?, strokeColor?, backgroundColor? | Modify existing element |
+| `DeleteElements` | elementIds[] | Remove elements by ID |
+| `ClearCanvas` | - | Clear all elements |
+| `GetCanvasState` | - | Return all elements and app state |
 
-const diagramContext = serializeAsJSON(elements, appState, files, 'local');
+---
 
-// Include in system prompt or user message
-const messages = [
-  {
-    role: 'system',
-    content: `You are a diagram assistant. Current diagram state: ${diagramContext}`
-  },
-  // ... conversation history
-];
-```
+## SignalR Communication
 
-**Benefits:**
-- LLM has full awareness of current diagram state
-- Can reference existing elements by ID
-- Can make contextual suggestions
-- Enables complex modifications based on current state
+### Hub Methods
 
-## Tool Execution & State Management
+**Client → Server:**
+- `SendMessage(user, message)` - Send chat message to AI agent
 
-### Question: How are canvas updates applied?
+**Server → Client:**
+- `ReceiveMessage(user, message)` - Display AI response
+- `ExecuteTool(action, data)` - Execute tool and return `ToolCallResult`
 
-**Answer:** Optimistic updates with rollback capability
+### Blocking Tool Calls
 
-**Implementation Strategy:**
+```csharp
+// Server-side (ExcalidrawMcpTools.cs)
+var result = await _hubContext.Clients.Client(connectionId)
+    .InvokeAsync<ToolCallResult>("ExecuteTool", action, data, cancellationToken);
 
-1. **Immediate Application**: Tool calls execute immediately to update canvas
-2. **State Snapshots**: Before each AI modification, capture a snapshot using `serializeAsJSON()`
-3. **History Stack**: Maintain array of previous states
-4. **Undo Functionality**: User can rollback AI changes with "Undo AI" button
-
-```typescript
-interface StateSnapshot {
-  elements: ExcalidrawElement[];
-  appState: AppState;
-  files: BinaryFiles;
-  timestamp: number;
-  toolCallId: string;
-}
-
-class ToolExecutor {
-  private stateHistory: StateSnapshot[] = [];
-  
-  async executeToolCall(toolCall: ToolCall) {
-    // Capture current state before modification
-    const snapshot = this.captureState();
-    this.stateHistory.push(snapshot);
-    
-    // Execute tool and update canvas immediately
-    await this.executeTools(toolCall);
-    
-    // Canvas updates happen in real-time
-  }
-  
-  undoLastAIChange() {
-    const previousState = this.stateHistory.pop();
-    if (previousState) {
-      // Restore previous state
-      excalidrawAPI.updateScene(previousState);
-    }
-  }
-}
-```
-
-### Question: User validation/preview - how does this work?
-
-**Clarification:** The application doesn't implement a preview mode. Instead:
-- Changes apply **immediately** to the canvas (optimistic updates)
-- Users see the result in real-time
-- If they don't like the changes, they use the **Undo AI** button to rollback
-- This is simpler than a preview/approve workflow and provides faster feedback
-
-## Tool Definitions
-
-### Core Excalidraw Operations (8-12 tools)
-
-1. **addRectangle** - Create rectangle element
-2. **addEllipse** - Create ellipse/circle element
-3. **addDiamond** - Create diamond shape
-4. **addArrow** - Create arrow connecting elements
-5. **addText** - Add text element
-6. **addLine** - Create line/polyline
-7. **updateElement** - Modify existing element properties
-8. **deleteElements** - Remove elements by IDs
-9. **groupElements** - Group multiple elements
-10. **ungroupElements** - Ungroup grouped elements
-11. **moveElements** - Reposition elements
-12. **getCanvasState** - Return serialized diagram state
-
-### Tool Schema Example
-
-```typescript
+// Client-side (ChatPanel.razor)
+hubConnection.On("ExecuteTool", async (string action, JsonElement data) =>
 {
-  name: "addRectangle",
-  description: "Add a rectangle to the canvas",
-  parameters: {
-    type: "object",
-    properties: {
-      x: { type: "number", description: "X coordinate" },
-      y: { type: "number", description: "Y coordinate" },
-      width: { type: "number", description: "Width of rectangle" },
-      height: { type: "number", description: "Height of rectangle" },
-      strokeColor: { type: "string", description: "Border color (hex)" },
-      backgroundColor: { type: "string", description: "Fill color (hex)" },
-      label: { type: "string", description: "Optional text label" }
-    },
-    required: ["x", "y", "width", "height"]
-  }
-}
-```
-
-## OpenAI Integration
-
-### API Configuration
-- Support for **official OpenAI API** endpoint
-- Support for **custom endpoints** (local models, proxies, etc.)
-- API key stored in localStorage
-- Configurable via settings UI
-
-### Function Calling Flow
-
-```
-User Input
-    ↓
-Serialize Canvas State (serializeAsJSON)
-    ↓
-Build Messages Array (system + history + current state)
-    ↓
-Call OpenAI API with function definitions
-    ↓
-Parse Response (text + tool calls)
-    ↓
-Execute Tool Calls → Update Canvas
-    ↓
-Save State Snapshot for Undo
-    ↓
-Display Assistant Response
-```
-
-## Implementation Plan
-
-### Phase 1: Project Setup
-- Initialize Vite + React + TypeScript project
-- Install dependencies: @excalidraw/excalidraw, openai
-- Configure build tools and TypeScript
-
-### Phase 2: UI Layout
-- Create main App component with split layout
-- Integrate Excalidraw component
-- Build ChatPanel component with message history
-- Implement input field and send button
-
-### Phase 3: Tool System
-- Define OpenAI function schemas for all Excalidraw operations
-- Build ToolExecutor class to translate tool calls to Excalidraw API
-- Implement state snapshot and history management
-- Add undo/redo functionality
-
-### Phase 4: LLM Integration
-- Set up OpenAI client with configurable endpoint
-- Implement context serialization using `serializeAsJSON()`
-- Build conversation flow with streaming support
-- Handle tool call parsing and execution
-
-### Phase 5: Configuration & Polish
-- Add settings UI for API key and endpoint
-- Implement localStorage persistence
-- Add error handling and loading states
-- Polish UI/UX
-
-## Key Technical Details
-
-### Excalidraw API Usage
-
-**Get Scene State:**
-```typescript
-const elements = excalidrawAPI.getSceneElements();
-const appState = excalidrawAPI.getAppState();
-const files = excalidrawAPI.getFiles();
-```
-
-**Update Scene:**
-```typescript
-excalidrawAPI.updateScene({
-  elements: [...newElements],
-  appState: { viewBackgroundColor: "#fff" }
+    var elementId = await JSRuntime.InvokeAsync<string>("ExcalidrawAPI.addElement", containerId, data);
+    return new ToolCallResult { Success = true, ElementId = elementId };
 });
 ```
 
-**Serialize for Context:**
-```typescript
-import { serializeAsJSON } from "@excalidraw/excalidraw";
+---
 
-const jsonString = serializeAsJSON(
-  elements,
-  appState,
-  files,
-  'local' // or 'database'
-);
+## Configuration
+
+### Environment Variables / appsettings.json
+
+```json
+{
+  "OpenAI": {
+    "Endpoint": "http://localhost:5000/v1",
+    "ApiKey": "sk-...",
+    "Model": "gpt-4o-mini"
+  },
+  "MCP": {
+    "Endpoint": "http://localhost:8080/mcp"
+  }
+}
 ```
 
-### State Management
+---
 
-**Snapshot Structure:**
-- Full elements array
-- AppState (viewport, selected elements, etc.)
-- Files (images/attachments)
-- Timestamp for debugging
-- Tool call ID for traceability
+## Development
 
-**History Limits:**
-- Keep last N snapshots (e.g., 10-20)
-- Prevent memory bloat
-- Option to clear history
+### Quick Start
+```bash
+docker compose up --build -d
+# Access at http://localhost:8080
+```
+
+### Local Development
+```bash
+# Build JS adapter
+cd AiDiagram.JsAdapter && npm install && npm run build
+
+# Run .NET
+dotnet run --project AiDiagram.Server
+```
+
+---
 
 ## Future Enhancements
 
-### Potential MCP Migration Path
-If multi-client support becomes needed:
-1. Extract ToolExecutor into standalone service
-2. Implement MCP server with TypeScript SDK
-3. Expose tools via HTTP/WebSocket transport
-4. Keep web client as MCP client
-5. Add desktop app, CLI, or other clients
-
-### Advanced Features
-- **Multi-step operations**: Complex diagram generation in sequence
-- **Template library**: Pre-built diagram patterns
-- **Export integration**: Auto-export to PNG/SVG after AI generation
-- **Collaboration**: Real-time multi-user editing with AI assistance
-- **Voice input**: Speech-to-diagram workflows
-- **Diagram analysis**: AI describes/explains existing diagrams
-
-## Questions & Answers Summary
-
-**Q: MCP or in-app tool calling?**
-A: In-app tool calling for faster MVP development, simpler architecture, and no backend requirements.
-
-**Q: How does context management work?**
-A: Serialize entire canvas as JSON using `serializeAsJSON()` and include in LLM context on each message.
-
-**Q: How do users validate/preview changes?**
-A: No preview mode - changes apply immediately (optimistic), user can undo with rollback button.
-
-**Q: How are updates applied?**
-A: Immediately to canvas, but previous state is captured in history stack for rollback.
-
-**Q: Why not use MCP?**
-A: MCP adds complexity for single-app use case. Can migrate later if multi-client support is needed by abstracting the tool execution layer.
+- **Canvas context for LLM** - Include current elements in system prompt
+- **Undo/Rollback** - State snapshots before AI changes
+- **Configuration UI** - Settings panel in sidebar
+- **Streaming responses** - Real-time token streaming
+- **Multi-step operations** - Complex diagram generation sequences
+- **Template library** - Pre-built diagram patterns

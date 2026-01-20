@@ -2,6 +2,7 @@ using AiDiagram.Server.MCP;
 using Microsoft.Agents.AI;
 using Microsoft.Extensions.AI;
 using ModelContextProtocol.Client;
+using System.Text.Json;
 
 namespace AiDiagram.Server.Services;
 
@@ -16,14 +17,17 @@ public class AgentService
 
     public async Task<string> ProcessMessageAsync(string sessionId, string userMessage)
     {
+        return await ProcessMessageWithHistoryAsync(sessionId, userMessage, Array.Empty<object>());
+    }
 
+    public async Task<string> ProcessMessageWithHistoryAsync(string sessionId, string userMessage, object[] history)
+    {
         // Get configuration
         var endpoint = _configuration["OpenAI:Endpoint"] ?? "http://localhost:5000/v1";
         var apiKey = _configuration["OpenAI:ApiKey"] ?? "sk-placeholder";
         var model = _configuration["OpenAI:Model"] ?? "gpt-4o-mini";
 
         // Setup MCP Client for Excalidraw tools
-        // Note: MCP:Endpoint should include the full path (e.g., http://localhost:8080/mcp)
         var mcpEndpoint = _configuration["MCP:Endpoint"] ?? "http://localhost:8080/mcp";
         
         var transportOptions = new HttpClientTransportOptions
@@ -32,7 +36,6 @@ public class AgentService
             Name = "ExcalidrawMCP"
         };
         
-        // Add session ID header via custom HttpClient
         var httpClient = new HttpClient();
         httpClient.DefaultRequestHeaders.Add("X-Session-ID", sessionId);
         
@@ -41,7 +44,7 @@ public class AgentService
         await using var mcpClient = await McpClient.CreateAsync(clientTransport);
         IList<McpClientTool> tools = await mcpClient.ListToolsAsync();
 
-        // Create agent using Microsoft Agent Framework with custom OpenAI endpoint
+        // Create chat client
         var chatClient = new OpenAI.Chat.ChatClient(
             model,
             new System.ClientModel.ApiKeyCredential(apiKey),
@@ -64,18 +67,37 @@ Always respond conversationally and confirm your actions.",
 
         var thread = agent.GetNewThread();
 
-        // Use Microsoft.Extensions.AI.ChatMessage
-        List<Microsoft.Extensions.AI.ChatMessage> messages =
-        [
-            new Microsoft.Extensions.AI.ChatMessage(ChatRole.User, userMessage),
-        ];
+        // Build messages from history + current message
+        List<Microsoft.Extensions.AI.ChatMessage> messages = new();
         
-        // Session context is now passed via HTTP headers
+        // Add history messages
+        foreach (var historyItem in history)
+        {
+            try
+            {
+                var jsonElement = historyItem is JsonElement je ? je : JsonSerializer.SerializeToElement(historyItem);
+                var role = jsonElement.GetProperty("role").GetString();
+                var content = jsonElement.GetProperty("content").GetString();
+                
+                if (!string.IsNullOrEmpty(role) && !string.IsNullOrEmpty(content))
+                {
+                    var chatRole = role == "user" ? ChatRole.User : ChatRole.Assistant;
+                    messages.Add(new Microsoft.Extensions.AI.ChatMessage(chatRole, content));
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[AgentService] Error parsing history item: {ex.Message}");
+            }
+        }
+        
+        // Add current message (if not already in history)
+        messages.Add(new Microsoft.Extensions.AI.ChatMessage(ChatRole.User, userMessage));
+        
+        Console.WriteLine($"[AgentService] Processing with {messages.Count} messages in history");
         
         var result = await agent.RunAsync(messages, options: null, thread: thread);
 
         return result.Text ?? "I processed your request.";
     }
-
-
 }
