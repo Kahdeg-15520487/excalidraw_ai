@@ -1,3 +1,4 @@
+using AiDiagram.Server.Services;
 using Microsoft.AspNetCore.SignalR;
 
 namespace AiDiagram.Server.Hubs;
@@ -5,6 +6,12 @@ namespace AiDiagram.Server.Hubs;
 public class DiagramHub : Hub
 {
     private static readonly Dictionary<string, string> _sessionMap = new();
+    private readonly AgentService _agentService;
+
+    public DiagramHub(AgentService agentService)
+    {
+        _agentService = agentService;
+    }
 
     public override async Task OnConnectedAsync()
     {
@@ -33,7 +40,24 @@ public class DiagramHub : Hub
 
     public async Task SendMessage(string user, string message)
     {
-        // Echo back for now - can be extended to integrate with AI service
-        await Clients.Caller.SendAsync("ReceiveMessage", "Assistant", $"You said: {message}");
+        // Get session ID from connection
+        var sessionId = _sessionMap.FirstOrDefault(x => x.Value == Context.ConnectionId).Key;
+        
+        if (string.IsNullOrEmpty(sessionId))
+        {
+            await Clients.Caller.SendAsync("ReceiveMessage", "System", "Error: Session not found. Please refresh the page.");
+            return;
+        }
+
+        try
+        {
+            // Process message through AI agent
+            var response = await _agentService.ProcessMessageAsync(sessionId, message);
+            await Clients.Caller.SendAsync("ReceiveMessage", "Assistant", response);
+        }
+        catch (Exception ex)
+        {
+            await Clients.Caller.SendAsync("ReceiveMessage", "System", $"Error processing message: {ex.Message}");
+        }
     }
 }

@@ -1,5 +1,7 @@
 @using Microsoft.AspNetCore.SignalR.Client
+@using Microsoft.JSInterop
 @inject NavigationManager Navigation
+@inject IJSRuntime JSRuntime
 @implements IAsyncDisposable
 
 <div class="chat-container">
@@ -138,12 +140,15 @@
     private bool isSending = false;
     private ElementReference messagesContainer;
     private HubConnection? hubConnection;
+    private string sessionId = Guid.NewGuid().ToString();
+    private const string ExcalidrawContainerId = "excalidraw-main";
 
     protected override async Task OnInitializedAsync()
     {
-        // Initialize SignalR connection
+        // Initialize SignalR connection with session ID for sticky session support
+        var hubUrl = Navigation.ToAbsoluteUri($"/diagramhub?sessionId={sessionId}");
         hubConnection = new HubConnectionBuilder()
-            .WithUrl(Navigation.ToAbsoluteUri("/diagramhub"))
+            .WithUrl(hubUrl)
             .WithAutomaticReconnect()
             .Build();
 
@@ -151,6 +156,50 @@
         {
             messages.Add(new ChatMessage { Content = message, IsUser = false });
             InvokeAsync(StateHasChanged);
+        });
+
+        // Handle tool execution from the agent - RETURNS a result for blocking RPC
+        hubConnection.On("ExecuteTool", async (string action, System.Text.Json.JsonElement data) =>
+        {
+            await JSRuntime.InvokeVoidAsync("console.log", "[ChatPanel] ExecuteTool received:", action, data.ToString());
+            
+            try
+            {
+                string? elementId = null;
+                
+                switch (action)
+                {
+                    case "addElement":
+                        elementId = await JSRuntime.InvokeAsync<string>("ExcalidrawAPI.addElement", ExcalidrawContainerId, data);
+                        break;
+                    case "updateElement":
+                        var updateElementId = data.GetProperty("elementId").GetString();
+                        await JSRuntime.InvokeVoidAsync("ExcalidrawAPI.updateElement", ExcalidrawContainerId, updateElementId, data);
+                        elementId = updateElementId;
+                        break;
+                    case "deleteElements":
+                        var elementIds = data.GetProperty("elementIds");
+                        await JSRuntime.InvokeVoidAsync("ExcalidrawAPI.deleteElements", ExcalidrawContainerId, elementIds);
+                        break;
+                    case "clearCanvas":
+                        await JSRuntime.InvokeVoidAsync("ExcalidrawAPI.clearCanvas", ExcalidrawContainerId);
+                        break;
+                    case "getCanvasState":
+                        await JSRuntime.InvokeVoidAsync("ExcalidrawAPI.getCanvasState", ExcalidrawContainerId);
+                        break;
+                    default:
+                        await JSRuntime.InvokeVoidAsync("console.warn", $"[ChatPanel] Unknown action: {action}");
+                        return new AiDiagram.Shared.ToolCallResult { Success = false, Error = $"Unknown action: {action}" };
+                }
+                
+                await JSRuntime.InvokeVoidAsync("console.log", "[ChatPanel] Tool executed successfully, elementId:", elementId);
+                return new AiDiagram.Shared.ToolCallResult { Success = true, ElementId = elementId };
+            }
+            catch (Exception ex)
+            {
+                await JSRuntime.InvokeVoidAsync("console.error", "[ChatPanel] Tool execution failed:", ex.Message);
+                return new AiDiagram.Shared.ToolCallResult { Success = false, Error = ex.Message };
+            }
         });
 
         await hubConnection.StartAsync();

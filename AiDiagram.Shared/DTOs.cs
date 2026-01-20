@@ -27,3 +27,14 @@ public class SceneData
     public List<ExcalidrawElement> Elements { get; set; }
     public object AppState { get; set; }
 }
+
+/// <summary>
+/// Result of a tool call executed on the frontend.
+/// Used with SignalR InvokeAsync for blocking tool calls.
+/// </summary>
+public class ToolCallResult
+{
+    public bool Success { get; set; }
+    public string? Error { get; set; }
+    public string? ElementId { get; set; }  // ID of created/updated element
+}

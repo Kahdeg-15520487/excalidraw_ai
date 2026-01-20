@@ -1,6 +1,5 @@
-using AiDiagram.Server.Hubs;
+using AiDiagram.Server.MCP;
 using Microsoft.Agents.AI;
-using Microsoft.AspNetCore.SignalR;
 using Microsoft.Extensions.AI;
 using ModelContextProtocol.Client;
 
@@ -8,22 +7,15 @@ namespace AiDiagram.Server.Services;
 
 public class AgentService
 {
-    private readonly IHubContext<DiagramHub> _hubContext;
     private readonly IConfiguration _configuration;
 
-    public AgentService(IHubContext<DiagramHub> hubContext, IConfiguration configuration)
+    public AgentService(IConfiguration configuration)
     {
-        _hubContext = hubContext;
         _configuration = configuration;
     }
 
     public async Task<string> ProcessMessageAsync(string sessionId, string userMessage)
     {
-        var connectionId = DiagramHub.GetConnectionId(sessionId);
-        if (connectionId == null)
-        {
-            return "Error: Client not connected.";
-        }
 
         // Get configuration
         var endpoint = _configuration["OpenAI:Endpoint"] ?? "http://localhost:5000/v1";
@@ -31,13 +23,20 @@ public class AgentService
         var model = _configuration["OpenAI:Model"] ?? "gpt-4o-mini";
 
         // Setup MCP Client for Excalidraw tools
-        var mcpEndpoint = _configuration["MCP:Endpoint"] ?? "http://localhost:5500";
+        // Note: MCP:Endpoint should include the full path (e.g., http://localhost:8080/mcp)
+        var mcpEndpoint = _configuration["MCP:Endpoint"] ?? "http://localhost:8080/mcp";
         
         var transportOptions = new HttpClientTransportOptions
         {
             Endpoint = new Uri(mcpEndpoint),
+            Name = "ExcalidrawMCP"
         };
-        var clientTransport = new HttpClientTransport(transportOptions);
+        
+        // Add session ID header via custom HttpClient
+        var httpClient = new HttpClient();
+        httpClient.DefaultRequestHeaders.Add("X-Session-ID", sessionId);
+        
+        var clientTransport = new HttpClientTransport(transportOptions, httpClient);
 
         await using var mcpClient = await McpClient.CreateAsync(clientTransport);
         IList<McpClientTool> tools = await mcpClient.ListToolsAsync();
@@ -70,14 +69,13 @@ Always respond conversationally and confirm your actions.",
         [
             new Microsoft.Extensions.AI.ChatMessage(ChatRole.User, userMessage),
         ];
-
+        
+        // Session context is now passed via HTTP headers
+        
         var result = await agent.RunAsync(messages, options: null, thread: thread);
 
         return result.Text ?? "I processed your request.";
     }
 
-    public async Task ExecuteToolOnClient(string connectionId, string toolName, object parameters)
-    {
-        await _hubContext.Clients.Client(connectionId).SendAsync("ExecuteTool", toolName, parameters);
-    }
+
 }
