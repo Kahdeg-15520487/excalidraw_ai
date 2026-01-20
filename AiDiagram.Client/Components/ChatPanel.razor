@@ -640,12 +640,12 @@
         await LoadSessions();
     }
 
-    private async Task SwitchSession(string newSessionId)
+    private async Task SwitchSession(string newSessionId, bool skipSave = false)
     {
         if (sessionId == newSessionId) return;
         
-        // Save current canvas state before switching
-        if (!string.IsNullOrEmpty(sessionId))
+        // Save current canvas state before switching (unless already saved)
+        if (!skipSave && !string.IsNullOrEmpty(sessionId))
         {
             await JSRuntime.InvokeVoidAsync("ChatHistoryDB.saveCanvasState", sessionId, ExcalidrawContainerId);
         }
@@ -682,7 +682,7 @@
         // Clear canvas for new session
         await JSRuntime.InvokeVoidAsync("ExcalidrawAPI.clearCanvas", ExcalidrawContainerId);
         
-        await SwitchSession(newSessionId);
+        await SwitchSession(newSessionId, skipSave: true);
     }
 
     private async Task DeleteSession(string sessionIdToDelete)
