@@ -455,18 +455,23 @@ const DB_VERSION = 1;
 const STORE_NAME = 'chatHistory';
 
 let dbInstance = null;
+let dbPromise = null;
 
 const openDatabase = () => {
-    return new Promise((resolve, reject) => {
-        if (dbInstance) {
-            resolve(dbInstance);
-            return;
-        }
+    if (dbInstance) {
+        return Promise.resolve(dbInstance);
+    }
 
+    if (dbPromise) {
+        return dbPromise;
+    }
+
+    dbPromise = new Promise((resolve, reject) => {
         const request = indexedDB.open(DB_NAME, DB_VERSION);
 
         request.onerror = () => {
             console.error('[ChatHistoryDB] Failed to open database:', request.error);
+            dbPromise = null;
             reject(request.error);
         };
 
@@ -485,6 +490,8 @@ const openDatabase = () => {
             }
         };
     });
+
+    return dbPromise;
 };
 
 window.ChatHistoryDB = {
@@ -496,6 +503,7 @@ window.ChatHistoryDB = {
 
     // Save a message to history
     saveMessage: async (sessionId, message) => {
+        console.log('[ChatHistoryDB] Saving message for session:', sessionId);
         const db = await openDatabase();
         return new Promise((resolve, reject) => {
             const transaction = db.transaction([STORE_NAME], 'readwrite');
@@ -512,7 +520,7 @@ window.ChatHistoryDB = {
 
             const request = store.add(record);
             request.onsuccess = () => {
-                console.log('[ChatHistoryDB] Message saved:', record);
+                console.log('[ChatHistoryDB] Message saved successfully:', record);
                 resolve(request.result);
             };
             request.onerror = () => {
@@ -533,7 +541,7 @@ window.ChatHistoryDB = {
 
             request.onsuccess = () => {
                 const messages = request.result.sort((a, b) => a.timestamp - b.timestamp);
-                console.log('[ChatHistoryDB] Retrieved history:', messages.length, 'messages');
+                console.log('[ChatHistoryDB] Retrieved history for session', sessionId, ':', messages.length, 'messages');
                 resolve(messages);
             };
             request.onerror = () => {
@@ -582,6 +590,7 @@ window.ChatHistoryDB = {
 
     // Get all unique sessions with metadata
     getAllSessions: async () => {
+        console.log('[ChatHistoryDB] Getting all sessions...');
         const db = await openDatabase();
         return new Promise((resolve, reject) => {
             const transaction = db.transaction([STORE_NAME], 'readonly');
@@ -590,9 +599,16 @@ window.ChatHistoryDB = {
 
             request.onsuccess = () => {
                 const messages = request.result;
+                console.log('[ChatHistoryDB] Raw messages found:', messages.length);
+
                 // Group by sessionId and get first/last message for each
                 const sessionsMap = new Map();
                 messages.forEach(msg => {
+                    if (!msg.sessionId) {
+                        console.warn('[ChatHistoryDB] Found message without sessionId:', msg);
+                        return;
+                    }
+
                     if (!sessionsMap.has(msg.sessionId)) {
                         sessionsMap.set(msg.sessionId, {
                             sessionId: msg.sessionId,
@@ -615,7 +631,7 @@ window.ChatHistoryDB = {
 
                 const sessions = Array.from(sessionsMap.values())
                     .sort((a, b) => b.lastMessage - a.lastMessage);
-                console.log('[ChatHistoryDB] Found sessions:', sessions.length);
+                console.log('[ChatHistoryDB] Unique sessions found:', sessions.length, sessions);
                 resolve(sessions);
             };
             request.onerror = () => {

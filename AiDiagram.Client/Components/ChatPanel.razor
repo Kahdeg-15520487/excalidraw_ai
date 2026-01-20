@@ -5,12 +5,41 @@
 @inject IJSRuntime JSRuntime
 @implements IAsyncDisposable
 
-<div class="chat-container">
-    <div class="chat-header">
-        <h3>AI Chat</h3>
+<div class="chat-layout">
+    <div class="sessions-sidebar @(showSidebar ? "open" : "")">
+        <div class="sidebar-header">
+            <h3>History</h3>
+            <button class="close-sidebar" @onclick="() => showSidebar = false">×</button>
+        </div>
+        <div class="sessions-list">
+            @if (sessions.Count == 0)
+            {
+                <div class="no-sessions">
+                    <span>No chat history found.</span>
+                    <span style="font-size: 12px; opacity: 0.7;">Start a new chat to begin!</span>
+                </div>
+            }
+            @foreach (var session in sessions)
+            {
+                <div class="session-item @(session.SessionId == sessionId ? "active" : "")">
+                    <div class="session-info" @onclick="() => SwitchSession(session.SessionId)">
+                        <div class="session-date">@session.LastMessage.ToLocalTime().ToString("MMM dd, HH:mm")</div>
+                        <div class="session-preview">@(string.IsNullOrEmpty(session.Preview) ? "New Chat" : session.Preview)</div>
+                    </div>
+                    <button class="delete-session" @onclick="() => DeleteSession(session.SessionId)" @onclick:stopPropagation="true">🗑️</button>
+                </div>
+            }
+        </div>
     </div>
-    
-    <div class="chat-messages" @ref="messagesContainer">
+
+    <div class="chat-container">
+        <div class="chat-header">
+            <button class="menu-btn" @onclick="() => showSidebar = !showSidebar">☰</button>
+            <h3>AI Chat</h3>
+            <button class="new-chat-btn" @onclick="CreateNewSession" title="New Chat">+</button>
+        </div>
+        
+        <div class="chat-messages" @ref="messagesContainer">
         @foreach (var message in messages)
         {
             @if (message.IsToolCall)
@@ -52,17 +81,182 @@
     </div>
 </div>
 
+</div>
+
 <style>
+    .chat-layout {
+        display: flex;
+        height: 100%;
+        width: 100%;
+        overflow: hidden;
+        position: relative;
+    }
+
+    .sessions-sidebar {
+        position: absolute;
+        left: 0;
+        top: 0;
+        bottom: 0;
+        width: 260px;
+        background: #f8fafc;
+        border-right: 1px solid #e2e8f0;
+        display: flex;
+        flex-direction: column;
+        transition: transform 0.3s ease;
+        z-index: 100;
+        transform: translateX(-100%);
+        box-shadow: 2px 0 8px rgba(0,0,0,0.1);
+    }
+
+    .sessions-sidebar.open {
+        transform: translateX(0);
+    }
+
+    /* Mobile handling for sidebar - removed specific media query as it applies globally now */
+
+    .sidebar-header {
+        padding: 16px;
+        border-bottom: 1px solid #e2e8f0;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+    }
+
+    .sidebar-header h3 {
+        margin: 0;
+        font-size: 16px;
+        color: #334155;
+    }
+
+    .close-sidebar {
+        background: none;
+        border: none;
+        font-size: 20px;
+        color: #64748b;
+        cursor: pointer;
+        display: block;
+    }
+    /* Removed media query for close-sidebar */
+
+    .sessions-list {
+        flex: 1;
+        overflow-y: auto;
+        padding: 8px;
+    }
+
+    .no-sessions {
+        padding: 20px;
+        text-align: center;
+        color: #94a3b8;
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        font-size: 14px;
+        margin-top: 20px;
+    }
+
+    .session-item {
+        display: flex;
+        align-items: center;
+        padding: 8px 12px;
+        border-radius: 6px;
+        cursor: pointer;
+        margin-bottom: 4px;
+        transition: background 0.2s;
+    }
+
+    .session-item:hover {
+        background: #e2e8f0;
+    }
+
+    .session-item.active {
+        background: #e0f2fe;
+        border: 1px solid #bae6fd;
+    }
+
+    .session-info {
+        flex: 1;
+        overflow: hidden;
+    }
+
+    .session-date {
+        font-size: 11px;
+        color: #64748b;
+        margin-bottom: 2px;
+    }
+
+    .session-preview {
+        font-size: 13px;
+        color: #334155;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    .delete-session {
+        background: none;
+        border: none;
+        opacity: 0;
+        font-size: 12px;
+        padding: 4px;
+        cursor: pointer;
+        transition: opacity 0.2s;
+    }
+
+    .session-item:hover .delete-session {
+        opacity: 0.6;
+    }
+    
+    .delete-session:hover {
+        opacity: 1 !important;
+    }
+
     .chat-container {
+        flex: 1;
         display: flex;
         flex-direction: column;
         height: 100%;
+        min-width: 0; /* Important for flex child truncation */
     }
 
     .chat-header {
-        padding: 16px;
+        padding: 12px 16px;
         border-bottom: 1px solid #e0e0e0;
         background: #fff;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+    }
+
+    .menu-btn {
+        background: none;
+        border: none;
+        font-size: 20px;
+        cursor: pointer;
+        color: #64748b;
+        padding: 4px;
+    }
+
+    .new-chat-btn {
+        margin-left: auto;
+        width: 32px;
+        height: 32px;
+        border-radius: 50%;
+        background: #eff6ff;
+        color: #3b82f6;
+        border: 1px solid #dbeafe;
+        font-size: 20px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+        transition: all 0.2s;
+        padding-bottom: 2px;
+    }
+
+    .new-chat-btn:hover {
+        background: #3b82f6;
+        color: white;
     }
 
     .chat-header h3 {
@@ -222,9 +416,11 @@
 
 @code {
     private List<ChatMessage> messages = new();
+    private List<ChatSession> sessions = new();
     private string currentMessage = "";
     private bool isSending = false;
     private bool shouldPreventDefault = false;
+    private bool showSidebar = false;
     private ElementReference messagesContainer;
     private HubConnection? hubConnection;
     private string sessionId = "";
@@ -244,10 +440,21 @@
         // Initialize IndexedDB for chat history
         await JSRuntime.InvokeVoidAsync("ChatHistoryDB.init");
         
-        // Load existing history from IndexedDB
+        // Load existing history and sessions
+        await LoadSessions();
         await LoadHistoryFromIndexedDB();
         
         // Initialize SignalR connection with session ID for sticky session support
+        await InitializeSignalR();
+    }
+    
+    private async Task InitializeSignalR()
+    {
+        if (hubConnection is not null)
+        {
+            await hubConnection.DisposeAsync();
+        }
+
         var hubUrl = Navigation.ToAbsoluteUri($"/diagramhub?sessionId={sessionId}");
         hubConnection = new HubConnectionBuilder()
             .WithUrl(hubUrl)
@@ -259,12 +466,23 @@
             var chatMessage = new ChatMessage { Content = message, IsUser = false };
             messages.Add(chatMessage);
             await SaveMessageToIndexedDB(chatMessage);
+            await UpdateSessionList();
             await InvokeAsync(StateHasChanged);
         });
 
         // Handle tool execution from the agent - RETURNS a result for blocking RPC
         hubConnection.On("ExecuteTool", async (string action, System.Text.Json.JsonElement data) =>
         {
+            // ... (existing tool execution logic, simplified for brevity, assume calling specific handler)
+            return await HandleExecuteTool(action, data);
+        });
+
+        await hubConnection.StartAsync();
+    }
+
+    // Refactored tool handler to be callable
+    private async Task<AiDiagram.Shared.ToolCallResult> HandleExecuteTool(string action, System.Text.Json.JsonElement data)
+    {
             await JSRuntime.InvokeVoidAsync("console.log", "[ChatPanel] ExecuteTool received:", action, data.ToString());
             
             try
@@ -279,6 +497,7 @@
                     Content = data.ToString()
                 };
                 messages.Add(toolCallMessage);
+                await SaveMessageToIndexedDB(toolCallMessage); // Save tool calls too
                 await InvokeAsync(StateHasChanged);
                 
                 switch (action)
@@ -315,9 +534,6 @@
                 await JSRuntime.InvokeVoidAsync("console.error", "[ChatPanel] Tool execution failed:", ex.Message);
                 return new AiDiagram.Shared.ToolCallResult { Success = false, Error = ex.Message };
             }
-        });
-
-        await hubConnection.StartAsync();
     }
 
     private async Task HandleKeyDown(KeyboardEventArgs e)
@@ -343,6 +559,7 @@
         var userMessage = new ChatMessage { Content = messageToSend, IsUser = true };
         messages.Add(userMessage);
         await SaveMessageToIndexedDB(userMessage);
+        await UpdateSessionList();
         StateHasChanged();
 
         try
@@ -370,6 +587,84 @@
         if (hubConnection is not null)
         {
             await hubConnection.DisposeAsync();
+        }
+    }
+
+    private async Task LoadSessions()
+    {
+        sessions = new List<ChatSession>();
+        try 
+        {
+            var rawSessions = await JSRuntime.InvokeAsync<System.Text.Json.JsonElement[]>("ChatHistoryDB.getAllSessions");
+            await JSRuntime.InvokeVoidAsync("console.log", $"[ChatPanel] Loaded {rawSessions.Length} sessions");
+            
+            foreach (var s in rawSessions)
+            {
+                var session = new ChatSession
+                {
+                    SessionId = s.GetProperty("sessionId").GetString() ?? "",
+                    MessageCount = s.GetProperty("messageCount").GetInt32(),
+                    Preview = s.GetProperty("preview").GetString() ?? "",
+                    LastMessage = DateTimeOffset.FromUnixTimeMilliseconds(s.GetProperty("lastMessage").GetInt64()).DateTime
+                };
+                sessions.Add(session);
+            }
+        }
+        catch (Exception ex)
+        {
+             await JSRuntime.InvokeVoidAsync("console.warn", "[ChatPanel] Failed to load sessions:", ex.Message);
+        }
+        StateHasChanged();
+    }
+    
+    // Just updates the list without full reload if possible, simple for now
+    private async Task UpdateSessionList()
+    {
+        await LoadSessions();
+    }
+
+    private async Task SwitchSession(string newSessionId)
+    {
+        if (sessionId == newSessionId) return;
+        
+        sessionId = newSessionId;
+        await JSRuntime.InvokeVoidAsync("localStorage.setItem", SessionIdKey, sessionId);
+        
+        // Clear current messages and load new history
+        messages.Clear();
+        await LoadHistoryFromIndexedDB();
+        
+        // Reconnect SignalR with new session ID
+        await InitializeSignalR();
+        
+        // Close sidebar on mobile
+        if (showSidebar) showSidebar = false;
+        
+        StateHasChanged();
+    }
+
+    private async Task CreateNewSession()
+    {
+        var newSessionId = Guid.NewGuid().ToString();
+        await SwitchSession(newSessionId);
+    }
+
+    private async Task DeleteSession(string sessionIdToDelete)
+    {
+        var confirmed = await JSRuntime.InvokeAsync<bool>("confirm", "Are you sure you want to delete this chat?");
+        if (!confirmed) return;
+        
+        await JSRuntime.InvokeVoidAsync("ChatHistoryDB.deleteSession", sessionIdToDelete);
+        
+        if (sessionId == sessionIdToDelete)
+        {
+            // If deleting current session, create a new one
+            await CreateNewSession();
+        }
+        else
+        {
+            await LoadSessions();
+            StateHasChanged();
         }
     }
 
@@ -420,6 +715,14 @@
         public bool IsUser { get; set; }
         public bool IsToolCall { get; set; }
         public string? ToolAction { get; set; }
+    }
+    
+    private class ChatSession
+    {
+        public string SessionId { get; set; } = "";
+        public string Preview { get; set; } = "";
+        public DateTime LastMessage { get; set; }
+        public int MessageCount { get; set; }
     }
 
     private static readonly MarkdownPipeline _markdownPipeline = new MarkdownPipelineBuilder()
