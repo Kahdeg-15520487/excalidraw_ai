@@ -447,12 +447,13 @@ window.updateExcalidrawScene = (containerId, sceneData) => {
 };
 
 // ============================================
-// ChatHistoryDB - IndexedDB for chat history
+// ChatHistoryDB - IndexedDB for chat history and canvas states
 // ============================================
 
 const DB_NAME = 'AiDiagramChatDB';
-const DB_VERSION = 1;
+const DB_VERSION = 2; // Incremented for canvasStates store
 const STORE_NAME = 'chatHistory';
+const CANVAS_STORE_NAME = 'canvasStates';
 
 let dbInstance = null;
 let dbPromise = null;
@@ -483,10 +484,18 @@ const openDatabase = () => {
 
         request.onupgradeneeded = (event) => {
             const db = event.target.result;
+
+            // Chat history store
             if (!db.objectStoreNames.contains(STORE_NAME)) {
                 const store = db.createObjectStore(STORE_NAME, { keyPath: 'id', autoIncrement: true });
                 store.createIndex('sessionId', 'sessionId', { unique: false });
-                console.log('[ChatHistoryDB] Object store created');
+                console.log('[ChatHistoryDB] Chat history store created');
+            }
+
+            // Canvas states store (new in v2)
+            if (!db.objectStoreNames.contains(CANVAS_STORE_NAME)) {
+                const canvasStore = db.createObjectStore(CANVAS_STORE_NAME, { keyPath: 'sessionId' });
+                console.log('[ChatHistoryDB] Canvas states store created');
             }
         };
     });
@@ -641,10 +650,107 @@ window.ChatHistoryDB = {
         });
     },
 
-    // Delete a session
+    // Delete a session (chat history + canvas state)
     deleteSession: async (sessionId) => {
         await window.ChatHistoryDB.clearHistory(sessionId);
+        await window.ChatHistoryDB.deleteCanvasState(sessionId);
         console.log('[ChatHistoryDB] Session deleted:', sessionId);
+    },
+
+    // Save canvas state for a session
+    saveCanvasState: async (sessionId, containerId) => {
+        if (!sessionId) {
+            console.warn('[ChatHistoryDB] Cannot save canvas: no sessionId');
+            return;
+        }
+
+        const canvasState = window.ExcalidrawAPI?.getCanvasState(containerId);
+        if (!canvasState || !canvasState.elements) {
+            console.warn('[ChatHistoryDB] Cannot save canvas: no canvas state');
+            return;
+        }
+
+        const db = await openDatabase();
+        return new Promise((resolve, reject) => {
+            const transaction = db.transaction([CANVAS_STORE_NAME], 'readwrite');
+            const store = transaction.objectStore(CANVAS_STORE_NAME);
+
+            const record = {
+                sessionId: sessionId,
+                elements: canvasState.elements,
+                appState: canvasState.appState,
+                timestamp: Date.now()
+            };
+
+            const request = store.put(record); // put = upsert
+            request.onsuccess = () => {
+                console.log('[ChatHistoryDB] Canvas state saved for session:', sessionId,
+                    `(${canvasState.elements.length} elements)`);
+                resolve();
+            };
+            request.onerror = () => {
+                console.error('[ChatHistoryDB] Failed to save canvas state:', request.error);
+                reject(request.error);
+            };
+        });
+    },
+
+    // Load canvas state for a session
+    loadCanvasState: async (sessionId, containerId) => {
+        if (!sessionId) {
+            console.warn('[ChatHistoryDB] Cannot load canvas: no sessionId');
+            return null;
+        }
+
+        const db = await openDatabase();
+        return new Promise((resolve, reject) => {
+            const transaction = db.transaction([CANVAS_STORE_NAME], 'readonly');
+            const store = transaction.objectStore(CANVAS_STORE_NAME);
+            const request = store.get(sessionId);
+
+            request.onsuccess = () => {
+                const record = request.result;
+                if (record && record.elements) {
+                    console.log('[ChatHistoryDB] Canvas state loaded for session:', sessionId,
+                        `(${record.elements.length} elements)`);
+
+                    // Apply to Excalidraw
+                    if (containerId && window.ExcalidrawAPI) {
+                        window.ExcalidrawAPI.clearCanvas(containerId);
+                        record.elements.forEach(el => {
+                            window.ExcalidrawAPI.addElement(containerId, el);
+                        });
+                    }
+                    resolve(record);
+                } else {
+                    console.log('[ChatHistoryDB] No canvas state found for session:', sessionId);
+                    resolve(null);
+                }
+            };
+            request.onerror = () => {
+                console.error('[ChatHistoryDB] Failed to load canvas state:', request.error);
+                reject(request.error);
+            };
+        });
+    },
+
+    // Delete canvas state for a session
+    deleteCanvasState: async (sessionId) => {
+        const db = await openDatabase();
+        return new Promise((resolve, reject) => {
+            const transaction = db.transaction([CANVAS_STORE_NAME], 'readwrite');
+            const store = transaction.objectStore(CANVAS_STORE_NAME);
+            const request = store.delete(sessionId);
+
+            request.onsuccess = () => {
+                console.log('[ChatHistoryDB] Canvas state deleted for session:', sessionId);
+                resolve();
+            };
+            request.onerror = () => {
+                console.error('[ChatHistoryDB] Failed to delete canvas state:', request.error);
+                reject(request.error);
+            };
+        });
     }
 };
 

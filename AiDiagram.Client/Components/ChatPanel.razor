@@ -448,6 +448,19 @@
         await InitializeSignalR();
     }
     
+    private bool isFirstRender = true;
+    
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender && isFirstRender)
+        {
+            isFirstRender = false;
+            // Wait a bit for Excalidraw to be ready, then load canvas state
+            await Task.Delay(500);
+            await JSRuntime.InvokeVoidAsync("ChatHistoryDB.loadCanvasState", sessionId, ExcalidrawContainerId);
+        }
+    }
+    
     private async Task InitializeSignalR()
     {
         if (hubConnection is not null)
@@ -527,6 +540,10 @@
                 }
                 
                 await JSRuntime.InvokeVoidAsync("console.log", "[ChatPanel] Tool executed successfully, elementId:", elementId);
+                
+                // Auto-save canvas state after AI makes changes
+                await JSRuntime.InvokeVoidAsync("ChatHistoryDB.saveCanvasState", sessionId, ExcalidrawContainerId);
+                
                 return new AiDiagram.Shared.ToolCallResult { Success = true, ElementId = elementId };
             }
             catch (Exception ex)
@@ -627,12 +644,21 @@
     {
         if (sessionId == newSessionId) return;
         
+        // Save current canvas state before switching
+        if (!string.IsNullOrEmpty(sessionId))
+        {
+            await JSRuntime.InvokeVoidAsync("ChatHistoryDB.saveCanvasState", sessionId, ExcalidrawContainerId);
+        }
+        
         sessionId = newSessionId;
         await JSRuntime.InvokeVoidAsync("localStorage.setItem", SessionIdKey, sessionId);
         
         // Clear current messages and load new history
         messages.Clear();
         await LoadHistoryFromIndexedDB();
+        
+        // Load canvas state for the new session
+        await JSRuntime.InvokeVoidAsync("ChatHistoryDB.loadCanvasState", sessionId, ExcalidrawContainerId);
         
         // Reconnect SignalR with new session ID
         await InitializeSignalR();
@@ -645,7 +671,17 @@
 
     private async Task CreateNewSession()
     {
+        // Save current canvas before creating new session
+        if (!string.IsNullOrEmpty(sessionId))
+        {
+            await JSRuntime.InvokeVoidAsync("ChatHistoryDB.saveCanvasState", sessionId, ExcalidrawContainerId);
+        }
+        
         var newSessionId = Guid.NewGuid().ToString();
+        
+        // Clear canvas for new session
+        await JSRuntime.InvokeVoidAsync("ExcalidrawAPI.clearCanvas", ExcalidrawContainerId);
+        
         await SwitchSession(newSessionId);
     }
 
