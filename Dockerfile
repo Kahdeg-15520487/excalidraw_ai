@@ -25,11 +25,11 @@ RUN dotnet restore
 # Copy all source code
 COPY . .
 
-# Build and publish Server
-RUN dotnet publish AiDiagram.Server/AiDiagram.Server.csproj -c Release -o /app/server
+# Build and publish Server (Debug for faster iteration)
+RUN dotnet publish AiDiagram.Server/AiDiagram.Server.csproj -c Debug -o /app/server --no-restore
 
-# Build and publish Client (Blazor WASM)
-RUN dotnet publish AiDiagram.Client/AiDiagram.Client.csproj -c Release -o /app/client
+# Build and publish Client (Blazor WASM) - Debug for faster iteration
+RUN dotnet publish AiDiagram.Client/AiDiagram.Client.csproj -c Debug -o /app/client --no-restore
 
 # Final runtime stage
 FROM mcr.microsoft.com/dotnet/aspnet:9.0 AS runtime

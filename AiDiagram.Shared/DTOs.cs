@@ -37,4 +37,5 @@ public class ToolCallResult
     public bool Success { get; set; }
     public string? Error { get; set; }
     public string? ElementId { get; set; }  // ID of created/updated element
+    public object? Data { get; set; }  // Additional data (e.g., canvas state)
 }

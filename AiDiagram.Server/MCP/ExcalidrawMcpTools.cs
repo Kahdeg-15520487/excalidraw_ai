@@ -198,10 +198,10 @@ internal class ExcalidrawTools
     }
 
     [McpServerTool]
-    [Description("Get the current state of the Excalidraw canvas including all elements")]
+    [Description("Get the current state of the Excalidraw canvas including all elements. Returns elements array and app state.")]
     public async Task<object> GetCanvasState()
     {
         var result = await SendToClientAsync("getCanvasState", new { });
-        return new { success = result.Success, error = result.Error };
+        return new { success = result.Success, error = result.Error, canvasState = result.Data };
     }
 }

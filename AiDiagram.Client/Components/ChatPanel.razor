@@ -1,5 +1,6 @@
 @using Microsoft.AspNetCore.SignalR.Client
 @using Microsoft.JSInterop
+@using Markdig
 @inject NavigationManager Navigation
 @inject IJSRuntime JSRuntime
 @implements IAsyncDisposable
@@ -12,9 +13,22 @@
     <div class="chat-messages" @ref="messagesContainer">
         @foreach (var message in messages)
         {
-            <div class="message @(message.IsUser ? "user" : "assistant")">
-                <div class="message-content">@message.Content</div>
-            </div>
+            @if (message.IsToolCall)
+            {
+                <div class="message tool-call">
+                    <div class="tool-call-header">
+                        <span class="tool-icon">🔧</span>
+                        <span class="tool-name">@message.ToolAction</span>
+                    </div>
+                    <div class="tool-call-content"><pre>@message.Content</pre></div>
+                </div>
+            }
+            else
+            {
+                <div class="message @(message.IsUser ? "user" : "assistant")">
+                    <div class="message-content">@((MarkupString)RenderMarkdown(message.Content))</div>
+                </div>
+            }
         }
     </div>
     
@@ -87,6 +101,77 @@
         color: #333;
         border: 1px solid #e0e0e0;
         border-bottom-left-radius: 4px;
+    }
+
+    /* Markdown styles */
+    .message-content p {
+        margin: 0 0 8px 0;
+    }
+    .message-content p:last-child {
+        margin-bottom: 0;
+    }
+    .message-content pre {
+        background: #1e1e1e;
+        color: #d4d4d4;
+        padding: 12px;
+        border-radius: 6px;
+        overflow-x: auto;
+        font-size: 13px;
+        margin: 8px 0;
+    }
+    .message-content code {
+        background: rgba(0,0,0,0.08);
+        padding: 2px 6px;
+        border-radius: 4px;
+        font-size: 13px;
+        font-family: 'Consolas', 'Monaco', monospace;
+    }
+    .message-content pre code {
+        background: none;
+        padding: 0;
+    }
+    .message.user .message-content code {
+        background: rgba(255,255,255,0.2);
+    }
+    .message-content ul, .message-content ol {
+        margin: 8px 0;
+        padding-left: 20px;
+    }
+    .message-content li {
+        margin: 4px 0;
+    }
+
+    /* Tool call styles */
+    .message.tool-call {
+        align-self: flex-start;
+        background: linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%);
+        border: 1px solid #7dd3fc;
+        border-left: 4px solid #0ea5e9;
+        max-width: 95%;
+    }
+    .tool-call-header {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-bottom: 6px;
+    }
+    .tool-icon {
+        font-size: 14px;
+    }
+    .tool-name {
+        font-weight: 600;
+        color: #0369a1;
+        font-size: 13px;
+    }
+    .tool-call-content pre {
+        background: rgba(255,255,255,0.7);
+        padding: 8px;
+        border-radius: 4px;
+        font-size: 12px;
+        margin: 0;
+        overflow-x: auto;
+        white-space: pre-wrap;
+        word-break: break-all;
     }
 
     .chat-input {
@@ -167,6 +252,16 @@
             {
                 string? elementId = null;
                 
+                // Add tool call to chat messages
+                var toolCallMessage = new ChatMessage 
+                { 
+                    IsToolCall = true, 
+                    ToolAction = action,
+                    Content = data.ToString()
+                };
+                messages.Add(toolCallMessage);
+                await InvokeAsync(StateHasChanged);
+                
                 switch (action)
                 {
                     case "addElement":
@@ -185,8 +280,9 @@
                         await JSRuntime.InvokeVoidAsync("ExcalidrawAPI.clearCanvas", ExcalidrawContainerId);
                         break;
                     case "getCanvasState":
-                        await JSRuntime.InvokeVoidAsync("ExcalidrawAPI.getCanvasState", ExcalidrawContainerId);
-                        break;
+                        var canvasState = await JSRuntime.InvokeAsync<object>("ExcalidrawAPI.getCanvasState", ExcalidrawContainerId);
+                        await JSRuntime.InvokeVoidAsync("console.log", "[ChatPanel] Canvas state:", canvasState);
+                        return new AiDiagram.Shared.ToolCallResult { Success = true, Data = canvasState };
                     default:
                         await JSRuntime.InvokeVoidAsync("console.warn", $"[ChatPanel] Unknown action: {action}");
                         return new AiDiagram.Shared.ToolCallResult { Success = false, Error = $"Unknown action: {action}" };
@@ -254,5 +350,20 @@
     {
         public string Content { get; set; } = "";
         public bool IsUser { get; set; }
+        public bool IsToolCall { get; set; }
+        public string? ToolAction { get; set; }
+    }
+
+    private static readonly MarkdownPipeline _markdownPipeline = new MarkdownPipelineBuilder()
+        .UseAdvancedExtensions()
+        .DisableHtml()
+        .Build();
+
+    private string RenderMarkdown(string? content)
+    {
+        if (string.IsNullOrEmpty(content))
+            return "";
+        
+        return Markdown.ToHtml(content, _markdownPipeline);
     }
 }
