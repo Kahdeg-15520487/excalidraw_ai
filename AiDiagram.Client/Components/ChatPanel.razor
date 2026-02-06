@@ -49,7 +49,9 @@
                         <span class="tool-icon">🔧</span>
                         <span class="tool-name">@message.ToolAction</span>
                     </div>
-                    <div class="tool-call-content"><pre>@message.Content</pre></div>
+                    <div class="tool-call-popup">
+                        <pre>@message.Content</pre>
+                    </div>
                 </div>
             }
             else
@@ -58,6 +60,15 @@
                     <div class="message-content">@((MarkupString)RenderMarkdown(message.Content))</div>
                 </div>
             }
+        }
+        @if (isSending)
+        {
+            <div class="message assistant loading">
+                <div class="message-content">
+                    <div class="spinner"></div>
+                    <span class="loading-text">AI is thinking...</span>
+                </div>
+            </div>
         }
     </div>
     
@@ -298,6 +309,36 @@
         border-bottom-left-radius: 4px;
     }
 
+    .message.loading {
+        opacity: 0.9;
+    }
+
+    .message.loading .message-content {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+    }
+
+    .spinner {
+        width: 16px;
+        height: 16px;
+        border: 2px solid #e0e0e0;
+        border-top: 2px solid #6366f1;
+        border-radius: 50%;
+        animation: spin 0.8s linear infinite;
+    }
+
+    @@keyframes spin {
+        0% { transform: rotate(0deg); }
+        100% { transform: rotate(360deg); }
+    }
+
+    .loading-text {
+        color: #64748b;
+        font-style: italic;
+        font-size: 13px;
+    }
+
     /* Markdown styles */
     .message-content p {
         margin: 0 0 8px 0;
@@ -339,34 +380,77 @@
     /* Tool call styles */
     .message.tool-call {
         align-self: flex-start;
-        background: linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%);
-        border: 1px solid #7dd3fc;
-        border-left: 4px solid #0ea5e9;
-        max-width: 95%;
+        background: #e0f2fe;
+        border: 1px solid #bae6fd;
+        border-left: 3px solid #0ea5e9;
+        max-width: 90%;
+        padding: 8px 12px;
+        border-radius: 8px;
+        position: relative;
+        cursor: pointer;
+        transition: background 0.2s;
+    }
+    .message.tool-call:hover {
+        background: #bae6fd;
     }
     .tool-call-header {
         display: flex;
         align-items: center;
-        gap: 8px;
-        margin-bottom: 6px;
+        gap: 6px;
+        margin-bottom: 0;
     }
     .tool-icon {
-        font-size: 14px;
-    }
-    .tool-name {
-        font-weight: 600;
-        color: #0369a1;
         font-size: 13px;
     }
-    .tool-call-content pre {
-        background: rgba(255,255,255,0.7);
-        padding: 8px;
-        border-radius: 4px;
+    .tool-name {
+        font-weight: 500;
+        color: #0369a1;
         font-size: 12px;
+    }
+    .tool-call-popup {
+        display: none;
+        position: absolute;
+        bottom: 100%;
+        left: 0;
+        margin-bottom: 8px;
+        background: #1e293b;
+        color: #e2e8f0;
+        border: 1px solid #475569;
+        border-radius: 8px;
+        padding: 12px;
+        min-width: 300px;
+        max-width: 500px;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+        z-index: 1000;
+    }
+    .message.tool-call:hover .tool-call-popup {
+        display: block;
+    }
+    .tool-call-popup pre {
+        background: #0f172a;
+        color: #e2e8f0;
+        padding: 10px;
+        border-radius: 6px;
+        font-size: 11px;
         margin: 0;
         overflow-x: auto;
         white-space: pre-wrap;
         word-break: break-all;
+        max-height: 300px;
+        overflow-y: auto;
+        font-family: 'Consolas', 'Monaco', monospace;
+    }
+    .tool-call-popup::before {
+        content: '';
+        position: absolute;
+        bottom: -6px;
+        left: 20px;
+        width: 12px;
+        height: 12px;
+        background: #1e293b;
+        border-right: 1px solid #475569;
+        border-bottom: 1px solid #475569;
+        transform: rotate(45deg);
     }
 
     .chat-input {
@@ -458,6 +542,22 @@
             // Wait a bit for Excalidraw to be ready, then load canvas state
             await Task.Delay(500);
             await JSRuntime.InvokeVoidAsync("ChatHistoryDB.loadCanvasState", sessionId, ExcalidrawContainerId);
+        }
+        
+        // Auto-scroll to bottom when messages change
+        await ScrollToBottom();
+    }
+    
+    private async Task ScrollToBottom()
+    {
+        try
+        {
+            await JSRuntime.InvokeVoidAsync("eval", 
+                "document.querySelector('.chat-messages')?.scrollTo({ top: document.querySelector('.chat-messages').scrollHeight, behavior: 'smooth' })");
+        }
+        catch
+        {
+            // Ignore scrolling errors
         }
     }
     
@@ -651,6 +751,7 @@
         }
         
         sessionId = newSessionId;
+        
         await JSRuntime.InvokeVoidAsync("localStorage.setItem", SessionIdKey, sessionId);
         
         // Clear current messages and load new history
